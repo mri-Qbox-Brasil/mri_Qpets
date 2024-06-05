@@ -5,7 +5,7 @@ author "Swkeep#7049"
 
 shared_scripts {
      '@qb-core/shared/locale.lua',
-     'locales/en.lua',
+     'locales/pt-br.lua',
      'config.lua',
      'shared/shared.lua',
      'shared/util.lua',

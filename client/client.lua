@@ -142,7 +142,7 @@ AddEventHandler('keep-companion:client:callCompanion', function(modelName, hosti
 
     whistleAnimation(plyPed, 1500)
 
-    CoreName.Functions.Progressbar("callCompanion", "Calling companion", Config.Settings.callCompanionDuration * 1000,
+    CoreName.Functions.Progressbar("callCompanion", "Chamando...", Config.Settings.callCompanionDuration * 1000,
         false, false, {
             disableMovement = false,
             disableCarMovement = false,
@@ -187,8 +187,8 @@ AddEventHandler('keep-companion:client:callCompanion', function(modelName, hosti
 
             exports['ox_target']:addEntity(netId, {
                 {
-                    icon = "fas fa-sack-dollar",
-                    label = "pet",
+                    icon = "fa-solid fa-hand-holding-heart",
+                    label = "Acariciar",
                     canInteract = function(entity)
                         return (IsEntityDead(entity) == false and ActivePed.read() ~= nil)
                     end,
@@ -218,18 +218,18 @@ AddEventHandler('keep-companion:client:callCompanion', function(modelName, hosti
                     end
                 }, {
                     icon = "fas fa-first-aid",
-                    label = "Heal",
+                    label = "Cuidar",
                     canInteract = function(entity)
                         return (IsEntityDead(entity) == false and ActivePed.read() ~= nil)
                     end,
                     onSelect = function(data)
                         entity = data.entity
-                        request_healing_process(ped, item, 'Heal')
+                        request_healing_process(ped, item, 'Cuidar')
                         return true
                     end
                 }, {
                     icon = "fas fa-first-aid",
-                    label = "revive pet",
+                    label = "Reanimar",
                     canInteract = function(entity)
                         return (IsEntityDead(entity) == 1 and ActivePed.read() ~= nil)
                     end,
@@ -243,8 +243,8 @@ AddEventHandler('keep-companion:client:callCompanion', function(modelName, hosti
                         return true
                     end
                 }, {
-                    icon = "fa-solid fa-flask",
-                    label = "Drink from water bottle",
+                    icon = "fa-solid fa-bottle-water",
+                    label = "Dar água",
                     canInteract = function(entity)
                         return (IsEntityDead(entity) ~= 1 and ActivePed.read() ~= nil)
                     end,
@@ -303,7 +303,7 @@ function request_healing_process(ped, item, process_type)
         }
     })
     -- firstaidforpet
-    CoreName.Functions.Progressbar("reviveing", "Reviveing",
+    CoreName.Functions.Progressbar("reviveing", "Reanimando...",
         timeout * 1000, false, false, {
             disableMovement = true,
             disableCarMovement = true,
@@ -446,7 +446,7 @@ AddEventHandler('keep-companion:client:despawn', function(item, revive)
     ClearPedTasks(plyPed)
     whistleAnimation(plyPed, 1500)
 
-    CoreName.Functions.Progressbar("despawn", "despawning", Config.Settings.despawnDuration * 1000, false, false, {
+    CoreName.Functions.Progressbar("despawn", "Retornando...", Config.Settings.despawnDuration * 1000, false, false, {
         disableMovement = false,
         disableCarMovement = false,
         disableMouse = false,
@@ -484,7 +484,7 @@ RegisterNetEvent('keep-companion:client:start_feeding_animation', function()
         return
     end
 
-    CoreName.Functions.Progressbar("feeding", "Feeding", Config.core_items.food.settings.duration * 1000, false, false,
+    CoreName.Functions.Progressbar("feeding", "Alimentando...", Config.core_items.food.settings.duration * 1000, false, false,
         {
             disableMovement = false,
             disableCarMovement = false,
@@ -513,7 +513,7 @@ function start_drinking_animation()
         return
     end
 
-    CoreName.Functions.Progressbar("pet_drinking", "drinking", Config.core_items.waterbottle.settings.duration * 1000,
+    CoreName.Functions.Progressbar("pet_drinking", "Dando água...", Config.core_items.waterbottle.settings.duration * 1000,
         false, false, {
             disableMovement = false,
             disableCarMovement = false,
@@ -527,7 +527,7 @@ function start_drinking_animation()
 end
 
 RegisterNetEvent('keep-companion:client:filling_animation', function(item)
-    CoreName.Functions.Progressbar("filling_animation", "filling bottle",
+    CoreName.Functions.Progressbar("filling_animation", "Enchendo garrafa...",
         Config.core_items.waterbottle.settings.duration * 1000, false, false, {
             disableMovement = false,
             disableCarMovement = false,
@@ -592,7 +592,7 @@ RegisterNetEvent('keep-companion:client:rename_name_tagAction', function(name)
         return
     end
 
-    CoreName.Functions.Progressbar("waitingForName", "waiting for Name",
+    CoreName.Functions.Progressbar("waitingForName", "Aprendendo nome...",
         Config.core_items.nametag.settings.duration * 1000, false, false, {
             disableMovement = false,
             disableCarMovement = false,
@@ -641,7 +641,7 @@ RegisterNetEvent('keep-companion:client:collar_process', function()
         if not inputData.cid then
             return
         end
-        CoreName.Functions.Progressbar("waitingForOwenership", "waiting for new owner",
+        CoreName.Functions.Progressbar("waitingForOwenership", "Recohecendo novo dono...",
             Config.core_items.collar.settings.duration * 1000, false, false, {
                 disableMovement = false,
                 disableCarMovement = false,

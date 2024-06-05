@@ -41,7 +41,7 @@ local menu = {
     [2] = {
         lable = Lang:t('menu.action_menu.hunt'),
         TYPE = 'Hunt',
-        triggerNotification = { 'PETNAME is now hunting!', 'PETNAME can not do that!' },
+        triggerNotification = { 'PETNAME está caçando!', 'PETNAME não sabe fazer isso!' },
         action = function(plyped, activePed)
             local min_lvl_to_hunt = Config.Settings.minHuntingAbilityLevel
             if activePed.canHunt ~= true then
@@ -146,17 +146,17 @@ local coo = {
 
 function k9SearchVehicle(veh, activePed)
     if not isModelK9(activePed.model) then
-        QBCore.Functions.Notify('This pet can not do that!', "error", 1500)
+        QBCore.Functions.Notify('Este pet não sabe fazer isso!', "error", 1500)
         return
     end
     if not PlayerJob then return end
     if not (PlayerJob.name == 'police') then
-        QBCore.Functions.Notify('You are not allowed to do this action', "error", 1500)
+        QBCore.Functions.Notify('Você não tem permissão para fazer esta ação', "error", 1500)
         return
     end
 
     if not PlayerJob.onduty == true then
-        QBCore.Functions.Notify('You Must be on duty to do this action', "error", 1500)
+        QBCore.Functions.Notify('Você deve estar de plantão para fazer esta ação', "error", 1500)
         return
     end
 

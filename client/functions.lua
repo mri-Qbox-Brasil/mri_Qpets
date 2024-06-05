@@ -143,7 +143,7 @@ function goThere(ped)
         local plyped = PlayerPedId()
         local position = GetEntityCoords(plyped)
         local coords, entity = RayCastGamePlayCamera(1000.0)
-        Draw2DText('Press ~g~E~w~ To go there', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
+        Draw2DText('~g~[E]~w~ MANDAR AO LOCAL', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
         if IsControlJustReleased(0, 38) then
             TaskGoToCoordAnyMeans(ped, coords, 10.0, 0, 0, 0, 0)
             return
@@ -202,7 +202,7 @@ function attackLogic(alreadyHunting)
         local plyped = PlayerPedId()
         local position = GetEntityCoords(plyped)
         local coords, entity = RayCastGamePlayCamera(1000.0)
-        Draw2DText('PRESS ~g~E~w~ TO ATTACK TARGET', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
+        Draw2DText('~g~[E]~w~ PARA ATACAR O ALVO', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
         if IsControlJustReleased(0, 38) then
             ClearPedTasks(ActivePed:read().entity)
             if IsEntityAPed(entity) ~= 1 then
@@ -250,7 +250,7 @@ function HuntandGrab(plyped, activePed)
         local color = { r = 2, g = 241, b = 181, a = 200 }
         local position = GetEntityCoords(plyped)
         local coords, entity = RayCastGamePlayCamera(1000.0)
-        Draw2DText('Press ~g~E~w~ To go there', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
+        Draw2DText('~g~[E]~w~ MANDAR AO LOCAL', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
         if IsControlJustReleased(0, 38) then
             local pet = activePed.entity
             if IsPedAPlayer(entity) == 1 or IsEntityAPed(entity) == false or entity == pet then

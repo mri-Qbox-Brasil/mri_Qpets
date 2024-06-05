@@ -17,7 +17,7 @@ Config.Settings = {
 }
 
 Config.Balance = {
-    maximumLevel = 50, -- xp callculation only works util level 99 don't set it to higher values
+    maximumLevel = 30, -- xp callculation only works util level 99 don't set it to higher values
     afk = {
         -- 60-sec passed after the player is AFK pet will wander in area
         -- 100-sec after when the player is AFK pet will start doing animation
