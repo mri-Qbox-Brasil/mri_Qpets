@@ -15,6 +15,9 @@ client_scripts {
      'client/animator.lua',
      'client/functions.lua',
      'client/client.lua',
+     'client/nui.lua',
+     'client/nui_customization.lua',
+     'client/nui_menus.lua',
      'client/menu.lua',
      'client/c_util.lua'
 }
@@ -24,3 +27,13 @@ server_scripts {
      'server/functions.lua',
      'server/server.lua'
 }
+<<<<<<< Updated upstream
+=======
+
+files {
+  'ui/dist/index.html',
+  'ui/dist/assets/**',
+  'ui/dist/vite.svg',
+  'inventory_images/*.png'
+}
+>>>>>>> Stashed changes

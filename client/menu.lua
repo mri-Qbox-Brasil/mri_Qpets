@@ -418,8 +418,24 @@ AddEventHandler('keep-companion:client:action_menu', function()
             event = "qb-menu:closeMenu"
         }
     }
-
+    
+    -- MIGRATED TO REACT UI
+    local menuItems = {}
+    for _, action in ipairs(actions) do
+        table.insert(menuItems, {
+            id = action.action,
+            label = action.label,
+            description = action.description,
+            icon = action.icon or '🐾',
+            disabled = action.disabled or false,
+            onClick = action.event and function() TriggerEvent(action.event) end or function() end
+        })
+    end
+    exports['mri_Qpets']:openReactMenu('Ações do Pet', menuItems)
+    
+    --[[ OLD OX_LIB MENU
     exports['qb-menu']:openMenu(openMenu)
+    ]]--
 end)
 
 AddEventHandler('keep-companion:client:tricks_menu', function()
@@ -536,13 +552,29 @@ end
 
 local function IsDowned()
     return (PlayerData.metadata["isdead"] or PlayerData.metadata["inlaststand"])
-end
+-- ============================
+--         Keybinds
+-- ============================
 
-local function Ishandcuffed()
-    return PlayerData.metadata["ishandcuffed"]
-end
+RegisterCommand('+showMenu', function()
+    if ActivePed.read() then
+        -- MIGRATED TO REACT UI
+        TriggerEvent('keep-companion:client:action_menu')
+    end
+end, false)
+
+RegisterCommand('-showMenu', function()
+end, false)
 
 RegisterKeyMapping('+showMenu', 'show pet menu', 'keyboard', Config.Settings.petMenuKeybind)
+
+--[[ OLD OX_LIB MENU TRIGGER
+RegisterCommand('+showMenu', function()
+    if ActivePed.read() then
+        TriggerEvent('keep-companion:client:main_menu')
+    end
+end, false)
+]]--
 RegisterCommand('+showMenu', function()
     updatePlayerJob()
     if ((IsDowned() and IsPoliceOrEMS()) or not IsDowned()) and not Ishandcuffed() and not IsPauseMenuActive() and
@@ -575,6 +607,11 @@ RegisterNetEvent('keep-companion:client:start_grooming_process', function()
     TriggerServerEvent('keep-companion:server:grooming_process', activePed.itemData)
 end)
 
+-- ============================
+-- MIGRATED TO NUI REACT UI  
+-- ============================
+-- The initialization_process event is now handled by client/nui_customization.lua
+--[[  
 RegisterNetEvent('keep-companion:client:initialization_process', function(item, pet_metadatarmation)
     if type(item) ~= "table" then
         QBCore.Functions.Notify(Lang:t('error.failed_to_start_procces'), 'error', 5000)
@@ -593,6 +630,7 @@ RegisterNetEvent('keep-companion:client:initialization_process', function(item, 
         item = item, pet_metadatarmation = pet_metadatarmation
     })
 end)
+]]--
 
 AddEventHandler('keep-companion:client:openMenu_customization', function(data)
     openMenu_customization(data)
@@ -602,35 +640,26 @@ AddEventHandler('keep-companion:client:openMenu_customization_rename', function(
     openMenu_customization_rename(data)
 end)
 
-local function rename(data)
-    local inputData = exports['qb-input']:ShowInput(
-        {
-            header = Lang:t('menu.customization_menu.rename.inputs.header'),
-            submitText = Lang:t('menu.general_menu_items.confirm'),
-            inputs = {
-                {
-                    type = 'text',
-                    isRequired = true,
-                    name = 'name',
-                    text = "name"
-                },
+AddEventHandler('keep-companion:client:rename', function()
+    -- MIGRATED TO REACT UI
+    exports['mri_Qpets']:openReactInput('Renomear Pet', {
+        { name = 'name', label = 'Novo Nome', type = 'text', placeholder = 'Digite o nome...', required = true, maxLength = 12 }
+    }, 'renamePet', 'Escolha um novo nome para seu pet')
+    
+    --[[ OLD OX_LIB INPUT
+    local inputData = exports['qb-input']:ShowInput({
+        header = Lang:t('info.rename_pet_header'),
+        submitText = Lang:t('info.rename_pet_submit'),
+        inputs = {
+            {
+                text = Lang:t('info.rename_pet_input'),
+                name = 'name',
+                type = 'text',
+                isRequired = true
             }
         }
-    )
+    })
     if inputData then
-        if not inputData.name then
-            return
-        end
-        local validation = ValidatePetName(inputData.name, 12)
-
-        if type(validation) == "table" and next(validation) ~= nil then
-            QBCore.Functions.Notify(Lang:t('error.failed_to_validate_name'), 'error', 5000)
-            if validation.reason == 'badword' then
-                QBCore.Functions.Notify(Lang:t('error.badword_inside_pet_name'), 'error', 5000)
-                print_table(validation.words)
-                TriggerEvent('keep-companion:client:openMenu_customization_rename', data)
-                return
-            elseif validation.reason == 'maxCharacter' then
                 QBCore.Functions.Notify(Lang:t('error.more_than_one_word_as_name'), 'error', 5000)
                 TriggerEvent('keep-companion:client:openMenu_customization_rename', data)
                 return
@@ -641,7 +670,8 @@ local function rename(data)
         data.item.metadata.name = inputData.name
         TriggerEvent('keep-companion:client:openMenu_customization_rename', data)
     end
-end
+    ]]--
+end)
 
 AddEventHandler('keep-companion:client:openMenu_customization_rename:rename', function(data)
     rename(data)

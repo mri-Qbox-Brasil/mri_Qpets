@@ -40,3 +40,4 @@ test.lua
 *.x86_64
 *.hex
 
+/ui/node_modules
