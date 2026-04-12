@@ -52,24 +52,21 @@ function initItem(source, item)
     local random = math.random(1, 2)
     local gender = { true, false }
     local maxHealth = 200
+    
+    -- Create FULL metadata immediately (will be deleted if user cancels)
     item.metadata = {}
-
     item.metadata.hash = tostring(QBCore.Shared.RandomInt(2) ..
         QBCore.Shared.RandomStr(3) .. QBCore.Shared.RandomInt(1) ..
         QBCore.Shared.RandomStr(2) .. QBCore.Shared.RandomInt(3) .. QBCore.Shared.RandomStr(4))
     item.metadata.name = NameGenerator('dog', random)
     item.metadata.gender = gender[random]
     item.metadata.age = 0
-
     item.metadata.food = 100
     item.metadata.thirst = 5
-
     item.metadata.owner = Player.PlayerData.charinfo
     item.metadata.level = 5
     item.metadata.XP = 0
     item.metadata.health = pet_metadatarmation.maxHealth or maxHealth
-
-    -- inital variation
     item.metadata.variation = PetVariation:getRandomPedVariationsName(pet_metadatarmation.model, true)
 
     initmetadataHelper(Player, item.slot, item.metadata)
@@ -85,6 +82,9 @@ function initItem(source, item)
             type = 'init'
         }
         TriggerClientEvent('keep-companion:client:initialization_process', src, item, metadatarmation)
+    else
+        -- If not customizing, spawn immediately
+        TriggerClientEvent('keep-companion:client:spawnPet', src, item)
     end
 end
 
@@ -96,65 +96,101 @@ function find_pet_model_by_item_name(item_name)
     end
 end
 
-RegisterNetEvent('keep-companion:server:compelete_initialization_process', function(item, process_type)
+RegisterNetEvent('keep-companion:server:cancelPetInitialization', function(itemSlot)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
-
-    TriggerEvent('keep-companion:server:keep-companion:server:compelete_initialization_process_last_step', source, item,
-        Player, process_type)
-    if process_type == 'init' then return end
-    --Player.Functions.RemoveItem(Config.core_items.groomingkit.item_name, 1)
-    ox_inventory:RemoveItem(src, Config.core_items.groomingkit.item_name, 1)
+    
+    print('[Server] Pet initialization cancelled for slot:', itemSlot)
+    
+    -- Clear metadata instead of deleting item
+    local success = ox_inventory:SetMetadata(src, itemSlot, {})
+    
+    if success then
+        print('[Server] Successfully cleared metadata from slot:', itemSlot)
+        TriggerClientEvent('QBCore:Notify', src, 'Inicialização do pet cancelada', 'error', 3000)
+    else
+        print('[Server] Failed to clear metadata from slot:', itemSlot)
+    end
 end)
 
+RegisterNetEvent('keep-companion:server:compelete_initialization_process', function(item, process_type)
+    local src = source
+    
+    print('[Server] Initialization process started for:', item.name, 'Type:', process_type)
+    
+    TriggerEvent('keep-companion:server:keep-companion:server:compelete_initialization_process_last_step', source, item,
+        process_type)
+end)
+
+-- This is where we actually complete the process and show success
 RegisterNetEvent('keep-companion:server:keep-companion:server:compelete_initialization_process_last_step',
-    function(src, item, Player, process_type)
+    function(source, item, process_type)
+        local Player = QBCore.Functions.GetPlayer(source)
+        
+        if not Player then return end
+        
         local pet_metadatarmation = find_pet_model_by_item_name(item.name)
         if not pet_metadatarmation then return end
-        --local items = Player.Functions.GetItemsByName(item.name)
-        local items = ox_inventory:GetInventoryItems(src)
-        if not items then return end
+        
+        if process_type == 'init' then
+            -- Update name and variation from user's choice
+            local inventory = ox_inventory:GetInventoryItems(source)
+            if not inventory then return end
+            
+            local serverItem = nil
+            for slot, invItem in pairs(inventory) do
+                if invItem.metadata and invItem.metadata.hash == item.metadata.hash then
+                    serverItem = invItem
+                    break
+                end
+            end
+            
+            if not serverItem then return end
+            
+            -- Update metadata with user's choices
+            serverItem.metadata.name = item.metadata.name
+            serverItem.metadata.variation = item.metadata.variation
+            
+            initmetadataHelper(Player, serverItem.slot, serverItem.metadata)
+            
+            -- Spawn the pet immediately
+            TriggerClientEvent('keep-companion:client:spawnPet', source, serverItem)
+            
+            -- Show success message
+            TriggerClientEvent('QBCore:Notify', source, 
+                string.format('Parabéns pelo seu novo companheiro %s!', item.metadata.name or 'pet'), 
+                'success', 5000)
+                
+        elseif process_type == Config.core_items.groomingkit.item_name then
+            -- Grooming process
+            local items = ox_inventory:GetInventoryItems(source)
+            if not items then return end
 
-        if process_type == Config.core_items.groomingkit.item_name then
-            local petData = Pet:findbyhash(src, item.metadata.hash)
+            local petData = Pet:findbyhash(source, item.metadata.hash)
             if Player.PlayerData.charinfo.phone ~= petData.metadata.owner.phone then
-                TriggerClientEvent('QBCore:Notify', src, Lang:t('error.not_owner_of_pet'), 'error', 2500)
+                TriggerClientEvent('QBCore:Notify', source, Lang:t('error.not_owner_of_pet'), 'error', 2500)
                 return
             end
-            -- force data that we don't want to get by client side
-            item.metadata.age = petData.metadata.age
-            item.metadata.food = petData.metadata.food
-            item.metadata.thirst = petData.metadata.thirst
-            -- check owner
-            item.metadata.owner = Player.PlayerData.charinfo
-            item.metadata.level = petData.metadata.level
-            item.metadata.XP = petData.metadata.XP
-            item.metadata.health = petData.metadata.health
-        else
-            -- force data that we don't want to get by client side
-            item.metadata.age = 0
-            item.metadata.food = 100
-            item.metadata.thirst = 0
-            item.metadata.owner = Player.PlayerData.charinfo
-            item.metadata.level = 5
-            item.metadata.XP = 0
-            item.metadata.health = pet_metadatarmation.maxHealth
-        end
-        local sever_item = nil
-        for key, value in pairs(items) do
-            if value.metadata.hash == item.metadata.hash then
-                sever_item = value
-                break
+            
+            -- Update variation only
+            local sever_item = nil
+            for key, value in pairs(items) do
+                if value.metadata.hash == item.metadata.hash then
+                    sever_item = value
+                    break
+                end
             end
-        end
-        if not sever_item then return end
+            if not sever_item then return end
 
-
-        initmetadataHelper(Player, sever_item.slot, item.metadata)
-        if process_type == Config.core_items.groomingkit.item_name then
-            TriggerClientEvent('QBCore:Notify', src, Lang:t('success.successful_grooming'), 'success', 2500)
-            Pet:despawnPet(src, item, true) -- despawn dead pet
+            sever_item.metadata.variation = item.metadata.variation
+            initmetadataHelper(Player, sever_item.slot, sever_item.metadata)
+            
+            TriggerClientEvent('QBCore:Notify', source, Lang:t('success.successful_grooming'), 'success', 2500)
+            Pet:despawnPet(source, item, true)
+            
+            -- Remove grooming kit
+            ox_inventory:RemoveItem(source, Config.core_items.groomingkit.item_name, 1)
         end
     end)
 
