@@ -3,6 +3,8 @@ games { 'gta5' }
 
 author "Swkeep#7049"
 
+ui_page 'ui/dist/index.html'
+
 shared_scripts {
      '@qb-core/shared/locale.lua',
      'locales/pt-br.lua',
@@ -27,8 +29,6 @@ server_scripts {
      'server/functions.lua',
      'server/server.lua'
 }
-<<<<<<< Updated upstream
-=======
 
 files {
   'ui/dist/index.html',
@@ -36,4 +36,3 @@ files {
   'ui/dist/vite.svg',
   'inventory_images/*.png'
 }
->>>>>>> Stashed changes

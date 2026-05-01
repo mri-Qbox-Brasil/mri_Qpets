@@ -23,13 +23,14 @@ export const useCustomizationStore = create<CustomizationState>((set, get) => ({
   petData: null,
 
   openCustomization: (data) => {
+    console.log('[CustomizationStore] Opening with data:', data);
     set({
       isOpen: true,
       petData: {
-        item: data.item,
-        petInfo: data.pet_metadatarmation,
+        item: data.item || {},
+        petInfo: data.pet_metadatarmation || data.pet_metadata || {},
         variationList: data.pet_variation_list || [],
-        type: data.type
+        type: data.type || 'init'
       }
     });
   },

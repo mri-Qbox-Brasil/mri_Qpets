@@ -10,13 +10,13 @@ export function MenuDialog() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 pointer-events-auto">
-      <Card className="w-full max-w-md border-border bg-card/95 backdrop-blur-sm shadow-2xl animate-in fade-in zoom-in duration-300 pointer-events-auto">
-        <CardHeader className="border-b border-border bg-muted/30">
+    <div className="fixed inset-0 flex items-center justify-center z-[9999] p-4 pointer-events-auto">
+      <Card className="w-full max-w-md border-border bg-card shadow-2xl animate-in fade-in zoom-in duration-300 pointer-events-auto">
+        <CardHeader className="border-b border-border bg-muted/30 p-10">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-xl">{title}</CardTitle>
-              {description && <CardDescription>{description}</CardDescription>}
+              <CardTitle className="text-2xl font-black tracking-tight">{title}</CardTitle>
+              {description && <CardDescription className="text-muted-foreground mt-1">{description}</CardDescription>}
             </div>
             <Button
               variant="ghost"
@@ -29,7 +29,7 @@ export function MenuDialog() {
           </div>
         </CardHeader>
 
-        <CardContent className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+        <CardContent className="p-10 space-y-4 max-h-[60vh] overflow-y-auto">
           {items.map((item) => (
             <button
               key={item.id}

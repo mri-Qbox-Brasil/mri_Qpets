@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { fetchNui } from './utils/fetchNui';
 import { usePetsStore } from './stores/petsStore';
 import { useUIStore } from './stores/uiStore';
 import { useActionsStore } from './stores/actionsStore';
@@ -23,25 +24,50 @@ import {
   List,
   Activity
 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
-import { Button } from './components/ui/button';
-import { Badge } from './components/ui/badge';
 import { Progress } from './components/ui/progress';
 import { Separator } from './components/ui/separator';
 import { cn } from './lib/utils';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+import { Button } from './components/ui/button';
+import { Badge } from './components/ui/badge';
+import { MoreVertical, Plus, ArrowLeft } from 'lucide-react';
 
 function App() {
   const { pets, selectedPet, selectPet, removePet, petAction, setPets, loadPets } = usePetsStore();
-  const { isVisible } = useUIStore();
+  const { isVisible, setVisible } = useUIStore();
   const { cooldowns, setCooldown } = useActionsStore();
   const { openCustomization } = useCustomizationStore();
   const { openMenu } = useMenuStore();
   const { openInput } = useInputStore();
 
   // Listen for NUI events
+  useNuiEvent<boolean>('setVisible', (data) => {
+    setVisible(data);
+  });
+
   useNuiEvent<Pet[]>('setPets', (data) => {
     setPets(data);
   });
+
+  // Auto-visible in browser
+  useEffect(() => {
+    if (!(window as any).invokeNative) {
+      setVisible(true);
+    }
+  }, [setVisible]);
+
+  // Global ESC key listener
+  useEffect(() => {
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isVisible) setVisible(false);
+        fetchNui('hideFrame');
+      }
+    };
+
+    window.addEventListener('keydown', keyHandler);
+    return () => window.removeEventListener('keydown', keyHandler);
+  }, [isVisible, setVisible]);
 
   useNuiEvent<Pet>('updatePet', (data) => {
     const store = usePetsStore.getState();
@@ -122,6 +148,44 @@ function App() {
       <MenuDialog />
       <InputDialog />
       
+      {/* Dev Mode Controls (Only in Browser) */}
+      {!(window as any).invokeNative && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 flex gap-2 p-2 bg-card border border-border rounded-full z-[10000] shadow-xl animate-in slide-in-from-top-4 duration-500">
+          <button 
+            className="rounded-full px-4 h-8 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 bg-primary/20 border border-primary/30 text-primary hover:bg-primary/30 transition-all"
+            onClick={() => openCustomization({
+              item: { id: 1, label: 'Pug' },
+              pet_metadata: { name: 'Bolinha', variation: 1 },
+              pet_variation_list: ['Variação 1', 'Variação 2', 'Variação 3'],
+              type: 'init'
+            })}
+          >
+            <Zap className="w-3 h-3" />
+            Mock Custom
+          </button>
+          <button 
+            className="rounded-full px-4 h-8 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 bg-blue-500/20 border border-blue-500/30 text-blue-400 hover:bg-blue-500/30 transition-all"
+            onClick={() => openMenu('Menu de Teste', [
+              { id: '1', label: 'Opção 1', description: 'Descrição da opção 1', onClick: () => console.log('Opção 1') },
+              { id: '2', label: 'Opção 2', description: 'Descrição da opção 2', onClick: () => console.log('Opção 2') },
+            ], 'Este é um menu de teste para validar o layout')}
+          >
+            <List className="w-3 h-3" />
+            Mock Menu
+          </button>
+          <button 
+            className="rounded-full px-4 h-8 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 bg-amber-500/20 border border-amber-500/30 text-amber-400 hover:bg-amber-500/30 transition-all"
+            onClick={() => openInput('Formulário de Teste', [
+              { name: 'nome', label: 'Nome', placeholder: 'Digite seu nome...' },
+              { name: 'idade', label: 'Idade', type: 'number', placeholder: 'Digite sua idade...' }
+            ], 'testCallback', 'Preencha os dados abaixo para testar o input')}
+          >
+            <Activity className="w-3 h-3" />
+            Mock Input
+          </button>
+        </div>
+      )}
+
       {/* Main Pet Management UI - Only when visible */}
       {isVisible && (
         <div className="h-full w-full flex items-center justify-end p-8 pointer-events-none">
@@ -134,246 +198,276 @@ function App() {
          {/* Detalhes do Pet - Aparece à esquerda quando selecionado */}
          {selectedPet && (
           <div className="flex-1 animate-in fade-in transition-all duration-300">
-            <Card className="h-full flex flex-col border-border overflow-hidden bg-card/95 backdrop-blur-sm shadow-2xl">
-              <CardHeader className="border-b border-border bg-muted/30 pb-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-2xl border border-primary/20 overflow-hidden">
-                      {getPetIcon(selectedPet.distinct, selectedPet.name)}
-                    </div>
-                    <div>
-                      <CardTitle className="text-xl flex items-center gap-2">
-                        {selectedPet.customName || selectedPet.model}
-                        <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider">
-                           ID: {selectedPet.id}
-                        </Badge>
-                      </CardTitle>
-                      <CardDescription>{selectedPet.model}</CardDescription>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="destructive" 
-                      size="sm" 
-                      className="gap-2 h-8"
-                      onClick={() => removePet(selectedPet.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Dispensar
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              
-              <CardContent className="p-6 flex-1 overflow-y-auto space-y-8 custom-scrollbar">
-                {/* Stats Grid */}
-                <div className="grid grid-cols-4 gap-4">
-                  {[
-                    { 
-                      label: 'Saúde', 
-                      value: getHealthPercentage(selectedPet.currentHealth, selectedPet.maxHealth), 
-                      display: `${selectedPet.currentHealth}/${selectedPet.maxHealth}`, 
-                      colorVar: '--stat-health',
-                      icon: <Activity className="w-4 h-4" /> 
-                    },
-                    { 
-                      label: 'Fome', 
-                      value: selectedPet.hunger, 
-                      display: `${selectedPet.hunger}%`, 
-                      colorVar: '--stat-hunger',
-                      icon: <Utensils className="w-4 h-4" /> 
-                    },
-                    { 
-                      label: 'Sede', 
-                      value: selectedPet.thirst, 
-                      display: `${selectedPet.thirst}%`, 
-                      colorVar: '--stat-thirst',
-                      icon: <Droplets className="w-4 h-4" /> 
-                    },
-                    { 
-                      label: 'Felicidade', 
-                      value: selectedPet.happiness, 
-                      display: `${selectedPet.happiness}%`, 
-                      colorVar: '--stat-happiness',
-                      icon: <Smile className="w-4 h-4" /> 
-                    },
-                  ].map((stat) => (
-                    <div key={stat.label} className="bg-muted/30 border border-border/50 rounded-xl p-3 flex flex-col gap-2">
-                      <div className="flex items-center justify-between text-muted-foreground">
-                        <span className="text-[10px] font-bold uppercase tracking-wider">{stat.label}</span>
-                        {stat.icon}
-                      </div>
-                      <div className="flex items-baseline justify-between">
-                        <span 
-                          className="text-xl font-black" 
-                          style={{ color: `var(${stat.colorVar})` }}
-                        >
-                          {stat.display}
-                        </span>
-                      </div>
-                      <Progress 
-                        value={stat.value} 
-                        className="h-1.5"
-                        style={{ 
-                          '--progress-bg': `color-mix(in srgb, var(${stat.colorVar}) 10%, transparent)`,
-                          '--progress-indicator': `var(${stat.colorVar})`,
-                        } as React.CSSProperties}
-                      />
-                    </div>
-                  ))}
-                </div>
+             <Card className="h-full flex flex-col border-border overflow-hidden bg-[#090a0d] shadow-2xl">
+               <CardHeader className="border-b border-border bg-[#121419] p-8">
+                 <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-4 bg-[#1C1F26]/50 p-4 rounded-2xl border border-border/40 shadow-inner">
+                     <div className="w-14 h-14 rounded-xl bg-[#090a0d] flex items-center justify-center text-3xl border border-border/50 overflow-hidden shadow-inner">
+                       {getPetIcon(selectedPet.distinct, selectedPet.name)}
+                     </div>
+                     <div className="space-y-1">
+                       <CardTitle className="text-2xl flex items-center gap-3 font-black tracking-tight text-white">
+                         {selectedPet.customName || selectedPet.model}
+                         <span className="text-xs font-bold text-muted-foreground bg-muted/20 px-2 py-0.5 rounded-md uppercase tracking-widest">
+                            ID: {selectedPet.id}
+                         </span>
+                       </CardTitle>
+                       <CardDescription className="flex items-center gap-2 font-medium">
+                         <span className="text-muted-foreground uppercase text-[10px] tracking-widest">{selectedPet.model}</span>
+                         <Badge className="bg-[#0BB673]/20 text-[#0BB673] border-none font-black uppercase text-[9px] h-4 px-1.5">
+                           {selectedPet.stage}
+                         </Badge>
+                       </CardDescription>
+                     </div>
+                   </div>
+                   <div className="flex flex-col gap-2">
+                     <Button 
+                       variant="ghost" 
+                       size="sm" 
+                       className="gap-2 h-9 px-4 font-black uppercase text-[10px] tracking-widest bg-white/5 text-muted-foreground border border-border/20 hover:bg-white/10 hover:text-white transition-all shadow-lg"
+                       onClick={() => selectPet(null)}
+                     >
+                       <ArrowLeft className="w-4 h-4" />
+                       Recolher
+                     </Button>
+                     <Button 
+                       variant="destructive" 
+                       size="sm" 
+                       className="gap-2 h-9 px-4 font-black uppercase text-[10px] tracking-widest bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all shadow-lg shadow-red-500/5"
+                       onClick={() => removePet(selectedPet.id)}
+                     >
+                       <Trash2 className="w-4 h-4" />
+                       Dispensar
+                     </Button>
+                   </div>
+                 </div>
+               </CardHeader>
+               
+               <CardContent className="p-8 flex-1 overflow-y-auto space-y-10 custom-scrollbar bg-[#090a0d]">
+                 {/* Stats Grid */}
+                 <div className="grid grid-cols-4 gap-4">
+                   {[
+                     { 
+                       label: 'Saúde', 
+                       value: getHealthPercentage(selectedPet.currentHealth, selectedPet.maxHealth), 
+                       display: `${selectedPet.currentHealth}/${selectedPet.maxHealth}`, 
+                       colorVar: '--stat-health',
+                       icon: <Activity className="w-4 h-4" /> 
+                     },
+                     { 
+                       label: 'Fome', 
+                       value: selectedPet.hunger, 
+                       display: `${selectedPet.hunger}%`, 
+                       colorVar: '--stat-hunger',
+                       icon: <Utensils className="w-4 h-4" /> 
+                     },
+                     { 
+                       label: 'Sede', 
+                       value: selectedPet.thirst, 
+                       display: `${selectedPet.thirst}%`, 
+                       colorVar: '--stat-thirst',
+                       icon: <Droplets className="w-4 h-4" /> 
+                     },
+                     { 
+                       label: 'Felicidade', 
+                       value: selectedPet.happiness, 
+                       display: `${selectedPet.happiness}%`, 
+                       colorVar: '--stat-happiness',
+                       icon: <Smile className="w-4 h-4" /> 
+                     },
+                   ].map((stat) => (
+                     <div key={stat.label} className="bg-[#121419] border border-border/50 rounded-2xl p-4 flex flex-col gap-3 group hover:border-primary/30 transition-all duration-300 shadow-xl">
+                       <div className="flex items-center justify-between">
+                         <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">{stat.label}</span>
+                         <div className="text-muted-foreground/40 group-hover:text-primary transition-colors">
+                            {stat.icon}
+                         </div>
+                       </div>
+                       <div className="flex items-baseline">
+                         <span className="text-2xl font-black text-white tracking-tighter">
+                           {stat.display}
+                         </span>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
 
-                <Separator className="bg-border/50" />
+                 <Separator className="bg-border/20" />
 
-                {/* Level & XP */}
-                <div className="bg-muted/20 border border-border/50 rounded-xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary border border-primary/30">
-                        <TrendingUp className="w-4 h-4" />
-                      </div>
-                      <span className="text-sm font-bold">Progresso de Nível</span>
-                    </div>
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Level {selectedPet.level}
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                      <span>XP Atual</span>
-                      <span>{selectedPet.xp} XP / {Math.floor(100 * Math.pow(1.5, selectedPet.level - 1))}</span>
-                    </div>
-                    <Progress value={(selectedPet.xp / Math.floor(100 * Math.pow(1.5, selectedPet.level - 1))) * 100} className="h-2 bg-primary/10" />
-                  </div>
-                </div>
+                 {/* Level & XP */}
+                 <div className="bg-[#121419] border border-border/50 rounded-2xl p-6 space-y-6 shadow-xl relative overflow-hidden group">
+                   <div className="absolute top-0 right-0 p-8 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity">
+                     <TrendingUp className="w-32 h-32" />
+                   </div>
+                   
+                   <div className="flex items-center justify-between relative z-10">
+                     <div className="flex items-center gap-3">
+                       <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+                         <TrendingUp className="w-5 h-5" />
+                       </div>
+                       <div>
+                         <h4 className="text-sm font-black uppercase tracking-widest text-white">Progresso de Nível</h4>
+                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Experiência acumulada</p>
+                       </div>
+                     </div>
+                     <div className="text-right">
+                       <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest block mb-1">Status</span>
+                       <span className="text-lg font-black text-primary uppercase">Level {selectedPet.level}</span>
+                     </div>
+                   </div>
+                   
+                   <div className="space-y-3 relative z-10">
+                     <div className="flex justify-between text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/70">
+                       <span>XP ATUAL</span>
+                       <span className="text-foreground">{selectedPet.xp} XP / {Math.floor(100 * Math.pow(1.5, selectedPet.level - 1))}</span>
+                     </div>
+                     <Progress 
+                       value={(selectedPet.xp / Math.floor(100 * Math.pow(1.5, selectedPet.level - 1))) * 100} 
+                       className="h-1.5 bg-[#1C1F26] rounded-full border border-border/10" 
+                       style={{ 
+                         '--progress-indicator': '#0BB673',
+                       } as React.CSSProperties}
+                     />
+                   </div>
+                 </div>
 
-                {/* Ações */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-primary" />
-                    Ações Disponíveis
-                  </h3>
-                  <div className="grid grid-cols-4 gap-3">
-                    {[
-                      { id: 'pet', icon: <User className="w-4 h-4" />, label: 'Acariciar', cooldown: 5000 },
-                      { id: 'feed', icon: <Utensils className="w-4 h-4" />, label: 'Alimentar', cooldown: 1000 },
-                      { id: 'water', icon: <Droplets className="w-4 h-4" />, label: 'Dar Água', cooldown: 1000 },
-                      { id: 'heal', icon: <Heart className="w-4 h-4" />, label: 'Curar', cooldown: 2000 },
-                    ].map((action) => (
-                      <Button
-                        key={action.id}
-                        variant="secondary"
-                        disabled={!!cooldowns[action.id]}
-                        className="flex flex-col h-auto py-4 gap-2 border border-border/50 hover:border-primary/50 hover:bg-primary/5 bg-muted/30 group transition-all"
-                        onClick={() => handlePetAction(selectedPet.id, action.id, action.cooldown)}
-                      >
-                        <div className={cn(
-                          "transition-colors",
-                          cooldowns[action.id] ? "text-muted-foreground/30" : "text-muted-foreground group-hover:text-primary"
-                        )}>
-                          {action.icon}
-                        </div>
-                        <span className="text-[10px] font-bold uppercase">{action.label}</span>
-                      </Button>
-                    ))}
-                  </div>
-                </div>
+                 {/* Ações */}
+                 <div className="space-y-6">
+                   <div className="flex items-center gap-3">
+                     <div className="text-primary">
+                       <Zap className="w-5 h-5" />
+                     </div>
+                     <h3 className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">Ações Disponíveis</h3>
+                   </div>
+                   
+                   <div className="grid grid-cols-4 gap-4">
+                     {[
+                       { id: 'pet', icon: <User className="w-5 h-5" />, label: 'Acariciar', cooldown: 5000 },
+                       { id: 'feed', icon: <Utensils className="w-5 h-5" />, label: 'Alimentar', cooldown: 1000 },
+                       { id: 'water', icon: <Droplets className="w-5 h-5" />, label: 'Dar Água', cooldown: 1000 },
+                       { id: 'heal', icon: <Heart className="w-5 h-5" />, label: 'Curar', cooldown: 2000 },
+                     ].map((action) => (
+                       <button
+                         key={action.id}
+                         disabled={!!cooldowns[action.id]}
+                         className={cn(
+                           "flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border transition-all duration-300 shadow-lg group relative overflow-hidden",
+                           cooldowns[action.id] 
+                             ? "border-border/20 bg-muted/10 opacity-40 cursor-not-allowed"
+                             : "border-border/50 bg-[#121419] hover:border-primary/50 hover:bg-primary/5 hover:scale-[1.02] active:scale-95"
+                         )}
+                         onClick={() => handlePetAction(selectedPet.id, action.id, action.cooldown)}
+                       >
+                         {cooldowns[action.id] && (
+                           <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10">
+                              <div className="w-5 h-5 border-2 border-primary/50 border-t-transparent rounded-full animate-spin" />
+                           </div>
+                         )}
+                         <div className={cn(
+                           "p-3 rounded-xl transition-colors",
+                           cooldowns[action.id] ? "text-muted-foreground/30" : "bg-[#1C1F26] text-muted-foreground group-hover:text-primary group-hover:bg-primary/10"
+                         )}>
+                           {action.icon}
+                         </div>
+                         <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground group-hover:text-white transition-colors">{action.label}</span>
+                       </button>
+                     ))}
+                   </div>
+                 </div>
 
-                {/* Skills */}
-                {selectedPet.abilities?.canHunt && (
-                  <div className="bg-muted/20 border border-border/50 rounded-xl p-4 flex items-center justify-between group hover:border-primary/30 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                        <Target className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold">Habilidade de Caça</h4>
-                        <p className="text-xs text-muted-foreground">Status atual da habilidade</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xl font-black text-primary">Nível {selectedPet.abilities.huntingLevel}</span>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                 {/* Skills */}
+                 {selectedPet.abilities?.canHunt && (
+                   <div className="bg-[#121419] border border-border/50 rounded-2xl p-6 flex items-center justify-between group hover:border-primary/30 transition-all duration-300 shadow-xl">
+                     <div className="flex items-center gap-4">
+                       <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                         <Target className="w-6 h-6" />
+                       </div>
+                       <div>
+                         <h4 className="text-sm font-black uppercase tracking-widest text-white">Habilidade de Caça</h4>
+                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Status atual da habilidade</p>
+                       </div>
+                     </div>
+                     <div className="text-right">
+                       <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest block mb-1">Progresso</span>
+                       <span className="text-2xl font-black text-primary">Nível {selectedPet.abilities.huntingLevel}</span>
+                     </div>
+                   </div>
+                 )}
+               </CardContent>
+             </Card>
           </div>
         )}
 
-        {/* Sidebar - Fixa à Direita */}
-        <div className="w-[400px] flex flex-col h-full animate-in fade-in duration-500">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3 px-1">
-              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-                <span className="text-xl">🐾</span>
-              </div>
-              <div>
-                <h1 className="text-xl font-black tracking-tight text-foreground uppercase">Gerenciar Pets</h1>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-70">
-                    {pets.filter(p => p.isActive).length} / 1 ativos • {pets.length} total
-                  </p>
+          <div className="w-[400px] h-full">
+            <Card className="h-full flex flex-col bg-card border-border overflow-hidden shadow-2xl p-6">
+              <div className="flex items-center gap-3 mb-6 px-1">
+                <div className="text-primary">
+                  <List className="w-5 h-5" />
                 </div>
+                <h1 className="text-xs font-black tracking-widest text-muted-foreground uppercase">Meus Pets</h1>
               </div>
-            </div>
-          </div>
 
-          <Card className="flex-1 flex flex-col border-border overflow-hidden bg-card/95 backdrop-blur-sm shadow-2xl">
-            <CardHeader className="border-b border-border bg-muted/30 py-4">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                  <List className="w-3 h-3" />
-                  Meus Pets
-                </CardTitle>
-                <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-              </div>
-            </CardHeader>
-            <CardContent className="p-0 flex-1 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar p-2 space-y-2">
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
                 {pets.map((pet) => (
-                  <button
+                  <Card
                     key={pet.id}
-                    onClick={() => selectPet(pet.id)}
                     className={cn(
-                      "w-full flex items-center gap-4 p-4 rounded-xl border transition-all duration-200 group text-left",
-                      selectedPet?.id === pet.id
-                        ? "bg-primary/10 border-primary/50 shadow-lg shadow-primary/5"
-                        : "bg-muted/10 border-border/50 hover:bg-muted/30 hover:border-border"
+                      "border-border/50 bg-[#121419] overflow-hidden group transition-all duration-300",
+                      selectedPet?.id === pet.id && "border-primary/50 shadow-lg shadow-primary/5"
                     )}
                   >
-                    <div className={cn(
-                      "w-12 h-12 rounded-lg flex items-center justify-center text-2xl transition-all overflow-hidden",
-                      selectedPet?.id === pet.id ? "bg-primary/20 scale-110" : "bg-muted/50 group-hover:bg-muted"
-                    )}>
-                      {getPetIcon(pet.distinct, pet.name)}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-sm truncate">{pet.customName || pet.model}</span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-black text-muted-foreground uppercase">Lvl {pet.level}</span>
-                          {pet.isActive && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                    <CardContent className="p-4" onClick={() => selectPet(pet.id)}>
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-lg bg-[#1C1F26] flex items-center justify-center text-primary border border-border/50 overflow-hidden">
+                            {getPetIcon(pet.distinct, pet.name)}
+                          </div>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-lg text-foreground tracking-tight">{pet.customName || pet.model}</h3>
+                              <Badge 
+                                className="bg-[#0BB673]/20 text-[#0BB673] hover:bg-[#0BB673]/30 border-none font-black text-[8px] h-4 px-1.5 uppercase" 
+                              >
+                                {pet.stage}
+                              </Badge>
+                            </div>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">LVL {pet.level}</p>
+                          </div>
                         </div>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
                       </div>
-                      
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-muted-foreground/50">
-                          <span>HP</span>
-                          <span className="text-primary">{pet.currentHealth}/{pet.maxHealth}</span>
+
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/70">
+                          <span>PONTOS DE VIDA</span>
+                          <span className="text-foreground">{pet.currentHealth} / {pet.maxHealth}</span>
                         </div>
-                        <Progress value={getHealthPercentage(pet.currentHealth, pet.maxHealth)} className="h-1 bg-primary/10" />
+                        <Progress 
+                          value={getHealthPercentage(pet.currentHealth, pet.maxHealth)} 
+                          className="h-2.5 bg-[#1C1F26] rounded-full border border-border/20"
+                          style={{ 
+                            '--progress-indicator': '#0BB673',
+                          } as React.CSSProperties}
+                        />
                       </div>
-                    </div>
-                  </button>
+                    </CardContent>
+                  </Card>
                 ))}
+
+                {/* Adicionar Novo Pet */}
+                <Card className="border-2 border-dashed border-border/50 bg-transparent hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer">
+                  <CardContent className="p-10 flex flex-col items-center justify-center gap-3">
+                    <div className="w-10 h-10 rounded-full border-2 border-border/80 flex items-center justify-center text-muted-foreground">
+                      <Plus className="w-6 h-6" />
+                    </div>
+                    <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">ADICIONAR NOVO PET</span>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </Card>
+          </div>
       </div>
     </div>
       )}

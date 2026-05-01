@@ -552,6 +552,7 @@ end
 
 local function IsDowned()
     return (PlayerData.metadata["isdead"] or PlayerData.metadata["inlaststand"])
+end
 -- ============================
 --         Keybinds
 -- ============================

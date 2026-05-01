@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useCustomizationStore } from '../stores/customizationStore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -12,11 +12,18 @@ export function PetCustomizationModal() {
   const [currentName, setCurrentName] = useState('');
   const [currentVariation, setCurrentVariation] = useState(0);
   const [error, setError] = useState('');
+  const [imageError, setImageError] = useState(false);
 
-  // Debug logging
-  console.log('[PetCustomizationModal] isOpen:', isOpen);
-  console.log('[PetCustomizationModal] petData:', JSON.stringify(petData, null, 2));
-  console.log('[PetCustomizationModal] Rendering:', !isOpen || !petData ? 'NO' : 'YES');
+  // Reset local state when modal opens
+  useEffect(() => {
+    if (isOpen && petData) {
+      console.log('[PetCustomizationModal] Opened for:', petData.item?.name || 'unknown');
+      setCurrentName(petData.petInfo?.name || '');
+      setCurrentVariation(0);
+      setImageError(false);
+      setError('');
+    }
+  }, [isOpen, petData]);
 
   if (!isOpen || !petData) return null;
 
@@ -24,7 +31,6 @@ export function PetCustomizationModal() {
     setCurrentName(value);
     setError('');
     
-    // Validate name
     if (value.length > 12) {
       setError('Nome muito longo (máximo 12 caracteres)');
       return;
@@ -43,32 +49,36 @@ export function PetCustomizationModal() {
     }
 
     setName(currentName);
-    setVariation(petData.variationList[currentVariation]);
+    if (petData.variationList && petData.variationList.length > 0) {
+      setVariation(petData.variationList[currentVariation]);
+    }
     confirm();
   };
 
   const handleClose = async () => {
-    // Notify backend that modal was closed without confirmation
     const { fetchNui } = await import('../utils/fetchNui');
     await fetchNui('closeCustomization', { item: petData.item });
-    
-    // Only close after backend confirms
     closeCustomization();
   };
 
   const isInitialization = petData.type === 'init';
 
+  const getPetImageUrl = (petName: string): string => {
+    const resourceName = (window as any).GetParentResourceName?.() || 'mri_Qpets';
+    return `nui://${resourceName}/inventory_images/${petName}.png`;
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 pointer-events-auto">
-      <Card className="w-full max-w-2xl border-border bg-card/95 backdrop-blur-sm shadow-2xl animate-in fade-in zoom-in duration-300 pointer-events-auto">
-        <CardHeader className="border-b border-border bg-muted/30">
+    <div className="fixed inset-0 flex items-center justify-center z-[99999] p-4 pointer-events-auto">
+      <Card className="w-full max-w-2xl border-border bg-card shadow-2xl animate-in fade-in zoom-in duration-300 pointer-events-auto overflow-hidden">
+        <CardHeader className="border-b border-border bg-muted/30 p-10">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-2xl flex items-center gap-2">
+              <CardTitle className="text-2xl font-black tracking-tight flex items-center gap-3">
                 <Palette className="w-6 h-6 text-primary" />
                 {isInitialization ? 'Personalizar Novo Pet' : 'Modificar Aparência'}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-muted-foreground mt-1">
                 {isInitialization 
                   ? 'Escolha um nome e aparência para seu novo companheiro'
                   : 'Altere a aparência do seu pet'}
@@ -85,13 +95,31 @@ export function PetCustomizationModal() {
           </div>
         </CardHeader>
 
-        <CardContent className="p-6 space-y-6">
+        <CardContent className="p-10 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+          {/* Pet Preview */}
+          <div className="flex justify-center">
+            <div className="w-40 h-40 rounded-3xl bg-[#121419] border border-border/50 flex items-center justify-center p-6 shadow-2xl relative group overflow-hidden">
+               <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+               {!imageError ? (
+                 <img 
+                   src={getPetImageUrl(petData.item?.name || 'paw')} 
+                   alt="Pet Preview" 
+                   className="w-full h-full object-contain relative z-10 transition-transform group-hover:scale-110 duration-500"
+                   onError={() => setImageError(true)}
+                 />
+               ) : (
+                 <div className="text-6xl animate-bounce">🐾</div>
+               )}
+               <div className="absolute -bottom-4 -right-4 w-20 h-20 bg-primary/10 blur-3xl rounded-full" />
+            </div>
+          </div>
+
           {/* Nome do Pet */}
           {isInitialization && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Type className="w-4 h-4 text-primary" />
-                <Label htmlFor="petName" className="text-sm font-bold">Nome do Pet</Label>
+                <Label htmlFor="petName" className="text-sm font-bold uppercase tracking-widest text-muted-foreground/80">Nome do Pet</Label>
               </div>
               <Input
                 id="petName"
@@ -99,14 +127,15 @@ export function PetCustomizationModal() {
                 onChange={(e) => handleNameChange(e.target.value)}
                 placeholder="Digite o nome do seu pet..."
                 maxLength={12}
-                className="bg-muted/30 border-border/50 focus:border-primary"
+                className="h-12 bg-muted/30 border-border/50 focus:border-primary text-lg"
               />
               {error && (
-                <p className="text-sm text-destructive font-medium">{error}</p>
+                <p className="text-sm text-destructive font-medium animate-pulse">{error}</p>
               )}
-              <p className="text-xs text-muted-foreground">
-                {currentName.length}/12 caracteres
-              </p>
+              <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">
+                <span>Dica: Use um nome criativo</span>
+                <span>{currentName.length}/12 caracteres</span>
+              </div>
             </div>
           )}
 
@@ -115,7 +144,7 @@ export function PetCustomizationModal() {
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Palette className="w-4 h-4 text-primary" />
-                <Label className="text-sm font-bold">Aparência</Label>
+                <Label className="text-sm font-bold uppercase tracking-widest text-muted-foreground/80">Aparência Disponível</Label>
               </div>
               <div className="grid grid-cols-4 gap-3">
                 {petData.variationList.map((variation, index) => (
@@ -131,12 +160,12 @@ export function PetCustomizationModal() {
                     )}
                   >
                     <div className="text-center">
-                      <p className="text-sm font-bold">Variação {index + 1}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{variation}</p>
+                      <p className="text-[10px] font-black uppercase tracking-tighter opacity-50">Estilo</p>
+                      <p className="text-sm font-bold">{index + 1}</p>
                     </div>
                     {currentVariation === index && (
-                      <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                        <Check className="w-4 h-4 text-primary-foreground" />
+                      <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/40 border-2 border-card">
+                        <Check className="w-3 h-3 text-primary-foreground font-bold" />
                       </div>
                     )}
                   </button>
@@ -146,21 +175,21 @@ export function PetCustomizationModal() {
           )}
 
           {/* Ações */}
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-4 pt-6">
             <Button
               variant="outline"
-              onClick={closeCustomization}
-              className="flex-1"
+              onClick={handleClose}
+              className="flex-1 h-12 font-black uppercase tracking-widest text-xs hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-all"
             >
               Cancelar
             </Button>
             <Button
               onClick={handleConfirm}
               disabled={isInitialization && (!currentName.trim() || !!error)}
-              className="flex-1 gap-2"
+              className="flex-1 h-12 gap-2 font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20"
             >
               <Check className="w-4 h-4" />
-              Confirmar
+              Confirmar & Salvar
             </Button>
           </div>
         </CardContent>
