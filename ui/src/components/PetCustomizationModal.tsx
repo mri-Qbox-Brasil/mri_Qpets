@@ -7,6 +7,29 @@ import { Label } from './ui/label';
 import { X, Check, Palette, Type } from 'lucide-react';
 import { cn } from '../lib/utils';
 
+const translateVariation = (name: string): string => {
+  const normalized = name.toLowerCase();
+  const translations: Record<string, string> = {
+    dark: 'Escuro',
+    brown: 'Marrom',
+    white: 'Branco',
+    darkbrown: 'Castanho Escuro',
+    lightbrown: 'Castanho Claro',
+    gray: 'Cinza',
+    grey: 'Cinza',
+    lightgray: 'Cinza Claro',
+    normal: 'Padrão',
+    goldblack: 'Dourado e Preto',
+    whitebrown: 'Branco e Marrom',
+    blackbrown: 'Preto e Marrom',
+    black: 'Preto',
+    gold: 'Dourado',
+    spotted: 'Malhado',
+  };
+  return translations[normalized] || name.charAt(0).toUpperCase() + name.slice(1);
+};
+
+
 export function PetCustomizationModal() {
   const { isOpen, petData, closeCustomization, setName, setVariation, confirm } = useCustomizationStore();
   const [currentName, setCurrentName] = useState('');
@@ -160,8 +183,8 @@ export function PetCustomizationModal() {
                     )}
                   >
                     <div className="text-center">
-                      <p className="text-[10px] font-black uppercase tracking-tighter opacity-50">Estilo</p>
-                      <p className="text-sm font-bold">{index + 1}</p>
+                      <p className="text-[10px] font-black uppercase tracking-tighter opacity-50">Aparência</p>
+                      <p className="text-xs font-bold leading-tight mt-0.5">{translateVariation(variation)}</p>
                     </div>
                     {currentVariation === index && (
                       <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/40 border-2 border-card">

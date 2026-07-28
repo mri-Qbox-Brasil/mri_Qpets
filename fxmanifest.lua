@@ -6,6 +6,7 @@ author "Swkeep#7049"
 ui_page 'ui/dist/index.html'
 
 shared_scripts {
+     '@ox_lib/init.lua',
      '@qb-core/shared/locale.lua',
      'locales/pt-br.lua',
      'config.lua',
@@ -14,6 +15,7 @@ shared_scripts {
      'shared/badwords.lua' }
 
 client_scripts {
+     'client/framework.lua',
      'client/animator.lua',
      'client/functions.lua',
      'client/client.lua',
@@ -26,6 +28,7 @@ client_scripts {
 
 server_scripts {
      '@oxmysql/lib/MySQL.lua',
+     'server/framework.lua',
      'server/functions.lua',
      'server/server.lua'
 }

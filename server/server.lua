@@ -1,497 +1,939 @@
 local QBCore = exports['qb-core']:GetCoreObject()
--- pet system
-local maxLimit = Config.MaxActivePetsPetPlayer
 local ox_inventory = exports.ox_inventory
--- ============================
---          Class
--- ============================
 
 Pet = {
-    players = {}
+    players = {} -- active spawned pets: Pet.players[source][dbId] = petData
 }
 
---- search for player(source) item's hash inside Pet list
-function Pet:isSpawned(source, item)
-    if self.players[source] ~= nil then
-        for key, table in pairs(self.players[source]) do
-            if item.metadata.hash == key then
-                return true
-            end
-        end
-    end
-    return false
+-- Helper function to round values
+local function Round(num, dp)
+    local mult = 10 ^ (dp or 0)
+    return math.floor(num * mult + 0.5) / mult
 end
 
+-- ============================
+--          Class Methods
+-- ============================
 
-
---- add pet to Pet table
-function Pet:setAsSpawned(source, o)
-    self.players[source] = self.players[source] or {}
-    self.players[source][o.item.metadata.hash] = self.players[source][o.item.metadata.hash] or {}
-    self.players[source][o.item.metadata.hash].model = o.model
-    self.players[source][o.item.metadata.hash].entity = o.entity
-
-    -- memmory new data saving method
-    self.players[source][o.item.metadata.hash].name = o.item.name
-    self.players[source][o.item.metadata.hash].metadata = o.item.metadata
-    return true
-end
-
---- removes pet from Pet table
-function Pet:setAsDespawned(source, item)
-    self.players[source] = self.players[source] or {}
-    self.players[source][item.metadata.hash] = nil
-end
-
---- start spawn chain
-function Pet:spawnPet(source, model, item)
-    -- sumun pet when it does exist inside our database
-    local isSpawned = Pet:isSpawned(source, item)
-    if isSpawned == true then
-        -- depsawn ped
-        Pet:despawnPet(source, item, nil)
-        return
-    end
-
-    local limit = Pet:isMaxLimitPedReached(source)
-    if limit == true then
-        TriggerClientEvent('QBCore:Notify', source, string.format(Lang:t('error.reached_max_allowed_pet'), maxLimit),
-            'error', 2500)
-        return
-    end
-
-    local Player = QBCore.Functions.GetPlayer(source)
-    -- spawn ped
-    -- if item.weight == 500 then
-    --     -- need inital values
-    --     if Player.PlayerData.items[item.slot] then
-    --         Player.PlayerData.items[item.slot].weight = math.random(1000, 4500)
-    --     end
-    --     Player.Functions.SetInventory(Player.PlayerData.items, true)
-    -- end
-    -- print(json.encode(item))
-    if item.metadata.health <= 100 and item.metadata.health ~= 0 then
-        -- prevent 100 to stuck in data as health!
-        if ox_inventory:GetSlot(source, item.slot) then
-            item.metadata.health = 0
-            ox_inventory:SetMetadata(source, item.slot, item.metadata.health)
-        end
-        --Player.Functions.SetInventory(Player.PlayerData.items, true)
-        return
-    end
-    -- print(item.metadata.owner.phone)
-    -- print(Player.PlayerData.charinfo.phone)
-    local owner = not (item.metadata.owner.phone == Player.PlayerData.charinfo.phone)
-    TriggerClientEvent('keep-companion:client:callCompanion', source, model, owner, item)
-end
-
-RegisterNetEvent('keep-companion:server:despwan_not_owned_pet', function(hash)
-    Pet:despawnPet(source, { metadata = {
-        hash = hash
-    } }, true)
-end)
-
---- check if player reached maximum allowed pet
 function Pet:isMaxLimitPedReached(source)
     local count = 0
-    if self.players[source] == nil then
+    if not self.players[source] then
         return false
-    else
-        for _ in pairs(self.players[source]) do
-            count = count + 1
-        end
-        if count == 0 then
-            return false
+    end
+    for _ in pairs(self.players[source]) do
+        count = count + 1
+    end
+    return count >= Config.MaxActivePetsPetPlayer
+end
 
-        elseif count >= maxLimit then
-            return true
-        end
+function Pet:setAsSpawned(source, dbId, petData)
+    self.players[source] = self.players[source] or {}
+    self.players[source][dbId] = petData
+    MySQL.update.await('UPDATE player_pets SET active = 1 WHERE id = ?', {dbId})
+end
+
+function Pet:setAsDespawned(source, dbId)
+    if self.players[source] and self.players[source][dbId] then
+        local petData = self.players[source][dbId]
+        
+        -- Save stats before despawning
+        MySQL.update.await('UPDATE player_pets SET active = 0, health = ?, hunger = ?, thirst = ?, happiness = ?, xp = ?, level = ? WHERE id = ?', {
+            petData.health,
+            petData.hunger,
+            petData.thirst,
+            petData.happiness,
+            petData.xp,
+            petData.level,
+            dbId
+        })
+        
+        self.players[source][dbId] = nil
     end
 end
 
---- despawn pet and remove it's data from server
-function Pet:despawnPet(source, item, revive)
-    -- despawn pet
-    -- save all data after despawning pet
-    TriggerClientEvent('keep-companion:client:despawn', source, item, revive)
-end
+-- ============================
+--          Callbacks
+-- ============================
 
-function Pet:findbyhash(source, hash)
-    for key, value in pairs(self.players[source]) do
-        if key == hash then
-            return value
-        end
-    end
-    return false
-end
+-- Fetch all player's pets
+QBCore.Functions.CreateCallback('keep-companion:server:getPets', function(source, cb)
+    local citizenid = Framework.GetCitizenId(source)
+    if not citizenid then return cb({}) end
 
-
-
-local server_saving_interval = 5000
-local server_saving_interval_sec = math.floor(server_saving_interval / 1000)
-local day = 10
-local max_age = 60 * 60 * 24 * day
-
-function Pet:save_all_metadata(source, hash)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if Player == nil then return end
-    local petData = Pet:findbyhash(source, hash)
-    local items = ox_inventory:GetInventoryItems(source)
-    local slot = nil
-    -- find item
-    for key, pet_item in pairs(items) do
-        if pet_item.metadata then
-            if pet_item.metadata.hash == hash then
-                slot = pet_item.slot
+    local pets = MySQL.query.await('SELECT * FROM player_pets WHERE citizenid = ?', {citizenid})
+    local formattedPets = {}
+    
+    for _, pet in ipairs(pets) do
+        local petConfig = nil
+        for _, cfg in pairs(Config.pets) do
+            if cfg.model == pet.model then
+                petConfig = cfg
                 break
             end
         end
-    end
-
-    if slot == nil then return end
-    -- skip saving data if pet aleady dead
-    if petData.metadata.health == 0 then return end
-    if petData.metadata.health > 100 then
-        if petData.metadata.age >= max_age then
-            return
-        end
-        -- increase pet age when it didnt reached max age
-        petData.metadata.age = petData.metadata.age + (server_saving_interval_sec)
-        Update:food(petData, 'decrease')
-        Update:thirst(petData, 'increase')
-    else
-        petData.metadata.health = 0
-        TriggerClientEvent('keep-companion:client:forceKill', source, hash, 'hunger')
-    end
-
-    if ox_inventory:GetSlot(source, slot) then
         
-        petData.metadata.health = Round(petData.metadata.health, 2) -- round values
-        petData.metadata.thirst = Round(petData.metadata.thirst, 2)
-        petData.metadata.food = Round(petData.metadata.food, 2)
-        ox_inventory:SetMetadata(source, slot, petData.metadata)
-    end
-end
+        local isActive = false
+        if Pet.players[source] and Pet.players[source][pet.id] then
+            isActive = true
+        end
 
-RegisterNetEvent('keep-companion:server:setAsDespawned', function(item)
-    if item == nil then return end
-    Pet:setAsDespawned(source, item)
+        local ageHours = math.floor(pet.age / 3600)
+        local stage = 'Filhote'
+        if ageHours >= 4 then
+            stage = 'Adulto'
+        elseif ageHours >= 1 then
+            stage = 'Jovem'
+        end
+
+        local maxHealth = petConfig and petConfig.maxHealth or 100
+        -- DB stores health as 0-100 percent; expose it as-is so UI shows correct bar
+        local currentHealthPct = math.max(0, math.min(100, pet.health or 100))
+
+        table.insert(formattedPets, {
+            id = pet.id,
+            name = petConfig and petConfig.name or 'petfood',
+            model = pet.model,
+            maxHealth = 100,
+            currentHealth = currentHealthPct,
+            distinct = petConfig and petConfig.distinct or 'no dog',
+            level = pet.level,
+            xp = pet.xp,
+            hunger = pet.hunger,
+            thirst = pet.thirst,
+            happiness = pet.happiness,
+            customName = pet.name,
+            isActive = isActive,
+            stage = stage,
+            abilities = {
+                canHunt = petConfig and string.find(petConfig.distinct, 'yes') ~= nil or false,
+                huntingLevel = pet.level
+            }
+        })
+    end
+    
+    cb(formattedPets)
 end)
--- ============================
---          Items
--- ============================
-local core_items = Config.core_items
 
-local function remove_item(src, Player, name, amount)
-    local res = exports.ox_inventory:RemoveItem(src, name, amount)
-    if res then
-        TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[name], "remove")
+-- Spawn Pet
+QBCore.Functions.CreateCallback('keep-companion:server:spawnPet', function(source, cb, petId)
+    local citizenid = Framework.GetCitizenId(source)
+    if not citizenid then return cb(false) end
+
+    local pet = MySQL.single.await('SELECT * FROM player_pets WHERE id = ? AND citizenid = ?', {petId, citizenid})
+    if not pet then
+        Framework.Notify(source, "Pet não encontrado ou não pertence a você", "error")
+        return cb(false)
     end
-    return res
+
+    -- Despawn any existing pet first to enforce limit
+    if Pet.players[source] then
+        for dbId, _ in pairs(Pet.players[source]) do
+            TriggerClientEvent('keep-companion:client:despawn', source, {metadata = {id = dbId}}, true)
+            Pet:setAsDespawned(source, dbId)
+        end
+    end
+
+    local petConfig = nil
+    for _, cfg in pairs(Config.pets) do
+        if cfg.model == pet.model then
+            petConfig = cfg
+            break
+        end
+    end
+
+    TriggerClientEvent('keep-companion:client:callCompanion', source, pet.model, false, {
+        id = pet.id,
+        name = petConfig and petConfig.name or pet.model,
+        metadata = {
+            id = pet.id,
+            name = pet.name,
+            gender = pet.gender == 'female',
+            age = pet.age,
+            food = pet.hunger,
+            thirst = pet.thirst,
+            happiness = pet.happiness,
+            level = pet.level,
+            XP = pet.xp,
+            health = pet.health,
+            variation = pet.variation
+        }
+    })
+    cb(true)
+end)
+
+-- Despawn Pet
+QBCore.Functions.CreateCallback('keep-companion:server:despawnPet', function(source, cb, petId)
+    local citizenid = Framework.GetCitizenId(source)
+    if not citizenid then return cb(false) end
+
+    if Pet.players[source] and Pet.players[source][petId] then
+        TriggerClientEvent('keep-companion:client:despawn', source, {metadata = {id = petId}}, false)
+        cb(true)
+    else
+        cb(false)
+    end
+end)
+
+-- Dispense Pet (Delete from database)
+QBCore.Functions.CreateCallback('keep-companion:server:removePet', function(source, cb, petId)
+    local citizenid = Framework.GetCitizenId(source)
+    if not citizenid then return cb(false) end
+
+    -- Check ownership
+    local pet = MySQL.single.await('SELECT * FROM player_pets WHERE id = ? AND citizenid = ?', {petId, citizenid})
+    if not pet then
+        Framework.Notify(source, "Pet não encontrado ou não pertence a você", "error")
+        return cb(false)
+    end
+
+    -- Despawn first if spawned
+    if Pet.players[source] and Pet.players[source][petId] then
+        TriggerClientEvent('keep-companion:client:despawn', source, {metadata = {id = petId}}, true)
+        Pet.players[source][petId] = nil
+    end
+
+    -- Delete from Database
+    local deleted = MySQL.query.await('DELETE FROM player_pets WHERE id = ?', {petId})
+    if deleted then
+        Framework.Notify(source, "Você dispensou o seu pet com sucesso.", "success")
+        cb(true)
+    else
+        cb(false)
+    end
+end)
+
+-- Rename Pet Callback
+QBCore.Functions.CreateCallback('keep-companion:server:renamePet', function(source, cb, item)
+    local citizenid = Framework.GetCitizenId(source)
+    if not citizenid or not item.id or not item.name then return cb(false) end
+
+    -- Validate ownership
+    local pet = MySQL.single.await('SELECT * FROM player_pets WHERE id = ? AND citizenid = ?', {item.id, citizenid})
+    if not pet then
+        Framework.Notify(source, "Você não é o dono deste pet!", "error")
+        return cb(false)
+    end
+
+    local updated = MySQL.update.await('UPDATE player_pets SET name = ? WHERE id = ?', {item.name, item.id})
+    if updated then
+        -- Despawn if currently spawned to force visual name updates
+        if Pet.players[source] and Pet.players[source][item.id] then
+            TriggerClientEvent('keep-companion:client:despawn', source, {metadata = {id = item.id}}, true)
+            Pet:setAsDespawned(source, item.id)
+        end
+        cb(item.name)
+    else
+        cb(false)
+    end
+end)
+
+-- Register client tracking feedback
+QBCore.Functions.CreateCallback('keep-companion:server:updatePedData', function(source, cb, clientRes)
+    local dbId = clientRes.item.metadata.id
+    if not dbId then return cb(false) end
+
+    local entity = NetworkGetEntityFromNetworkId(clientRes.netId)
+    local petData = {
+        id = dbId,
+        name = clientRes.item.name,
+        model = clientRes.model,
+        entity = entity,
+        netId = clientRes.netId,
+        health = clientRes.item.metadata.health or 100,
+        hunger = clientRes.item.metadata.food or 100,
+        thirst = clientRes.item.metadata.thirst or 100,
+        happiness = clientRes.item.metadata.happiness or 100,
+        xp = clientRes.item.metadata.XP or 0,
+        level = clientRes.item.metadata.level or 1,
+        variation = clientRes.item.metadata.variation or 'dark',
+        customName = clientRes.item.metadata.name or clientRes.item.name
+    }
+
+    Pet:setAsSpawned(source, dbId, petData)
+    cb(true)
+end)
+
+-- Update health/XP sent from client
+RegisterNetEvent('keep-companion:server:updateAllowedmetadata', function(petMetadata, data, customSrc)
+    local src = customSrc or source
+    local citizenid = Framework.GetCitizenId(src)
+    if not citizenid or not petMetadata.id then return end
+
+    if Pet.players[src] and Pet.players[src][petMetadata.id] then
+        local activePet = Pet.players[src][petMetadata.id]
+        
+        if data.key == 'health' then
+            if data.healthPct then
+                activePet.health = math.floor(data.healthPct)
+                if activePet.health <= 0 then
+                    activePet.health = 0
+                    if data.netId then
+                        local entity = NetworkGetEntityFromNetworkId(data.netId)
+                        if entity and DoesEntityExist(entity) then
+                            SetEntityHealth(entity, 0)
+                        end
+                    end
+                end
+                MySQL.update.await('UPDATE player_pets SET health = ? WHERE id = ?', {activePet.health, petMetadata.id})
+                TriggerClientEvent('keep-companion:client:updateNUI', src)
+            elseif data.netId then
+                local entity = NetworkGetEntityFromNetworkId(data.netId)
+                if entity and DoesEntityExist(entity) then
+                    local c_health = GetEntityHealth(entity)
+                    if c_health <= 100 then
+                        activePet.health = 0
+                        SetEntityHealth(entity, 0)
+                    else
+                        -- Convert actual GTA health (100..maxHealth) to 0-100 percent for DB storage
+                        local petConfig = nil
+                        for _, cfg in pairs(Config.pets) do
+                            if cfg.model == activePet.model then petConfig = cfg; break end
+                        end
+                        local maxHealth = petConfig and petConfig.maxHealth or 200
+                        local minHealth = 100
+                        local pct = math.min(100, math.max(0, ((c_health - minHealth) / (maxHealth - minHealth)) * 100.0))
+                        activePet.health = math.floor(pct)
+                    end
+                    MySQL.update.await('UPDATE player_pets SET health = ? WHERE id = ?', {activePet.health, petMetadata.id})
+                    TriggerClientEvent('keep-companion:client:updateNUI', src)
+                end
+            end
+        elseif data.key == 'XP' then
+            -- Handled passively by the server thread
+        elseif data.key == 'happiness' then
+            activePet.happiness = math.min(100, (activePet.happiness or 100) + 15)
+            MySQL.update.await('UPDATE player_pets SET happiness = ? WHERE id = ?', {activePet.happiness, petMetadata.id})
+            TriggerClientEvent('keep-companion:client:updateNUI', src)
+        elseif data.key == 'name' then
+            activePet.customName = petMetadata.name
+            MySQL.update.await('UPDATE player_pets SET name = ? WHERE id = ?', {petMetadata.name, petMetadata.id})
+            TriggerClientEvent('keep-companion:client:updateNUI', src)
+        elseif data.key == 'collarColor' then
+            activePet.variation = petMetadata.collarColor
+            MySQL.update.await('UPDATE player_pets SET variation = ? WHERE id = ?', {petMetadata.collarColor, petMetadata.id})
+            TriggerClientEvent('keep-companion:client:updateNUI', src)
+        end
+    end
+end)
+
+-- Event helper to link updateAllowedInfo triggers (fixing event mismatch)
+RegisterNetEvent('keep-companion:server:updateAllowedInfo', function(petItem, data)
+    local src = source
+    TriggerEvent('keep-companion:server:updateAllowedmetadata', petItem, data, src)
+end)
+
+-- Set active pet as despawned when despawn event finishes
+RegisterNetEvent('keep-companion:server:setAsDespawned', function(item)
+    local src = source
+    if not item or not item.metadata or not item.metadata.id then return end
+    Pet:setAsDespawned(src, item.metadata.id)
+end)
+
+RegisterNetEvent('keep-companion:server:ForceRemoveNetEntity', function(netId)
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if entity and DoesEntityExist(entity) then
+        DeleteEntity(entity)
+    end
+end)
+
+-- ============================
+--        Decay & XP Loops
+-- ============================
+
+-- Periodic Status Decay Thread
+CreateThread(function()
+    while true do
+        Wait(Config.StatusDecay.Interval * 1000)
+        
+        for source, activePets in pairs(Pet.players) do
+            local player = Framework.GetPlayer(source)
+            if not player then
+                -- Player dropped, cleanup
+                for dbId, petData in pairs(activePets) do
+                    if petData.entity and DoesEntityExist(petData.entity) then
+                        DeleteEntity(petData.entity)
+                    end
+                    MySQL.update.await('UPDATE player_pets SET active = 0 WHERE id = ?', {dbId})
+                end
+                Pet.players[source] = nil
+            else
+                for dbId, petData in pairs(activePets) do
+                    -- Decay Hunger
+                    petData.hunger = math.max(0, (petData.hunger or 100) - Config.StatusDecay.Hunger)
+                    
+                    -- Decay Thirst (hydration)
+                    petData.thirst = math.max(0, (petData.thirst or 100) - Config.StatusDecay.Thirst)
+                    
+                    -- Decay Happiness
+                    petData.happiness = math.max(0, (petData.happiness or 100) - Config.StatusDecay.Happiness)
+                    
+                    -- Decay Health if starving/dehydrated
+                    local healthChanged = false
+                    if petData.hunger == 0 then
+                        petData.health = math.max(0, (petData.health or 100) - Config.StatusDecay.HealthHungerZero)
+                        healthChanged = true
+                    end
+                    if petData.thirst == 0 then
+                        petData.health = math.max(0, (petData.health or 100) - Config.StatusDecay.HealthThirstZero)
+                        healthChanged = true
+                    end
+                    
+                    -- Update Entity Health visually on client (client manages the entity)
+                    if healthChanged then
+                        TriggerClientEvent('keep-companion:client:update_health_value', source, {netId = petData.netId}, petData.health)
+                    end
+                    
+                    -- If health reaches 0, handle fainting on the server
+                    if petData.health == 0 and healthChanged then
+                        local entity = NetworkGetEntityFromNetworkId(petData.netId)
+                        if entity and entity ~= 0 and DoesEntityExist(entity) then
+                            SetEntityHealth(entity, 0)
+                        end
+                        Framework.Notify(source, string.format("Seu pet %s desmaiou de fome ou sede extrema!", petData.customName or petData.model), "error")
+                    end
+
+                    -- Save state to DB
+                    MySQL.update.await('UPDATE player_pets SET health = ?, hunger = ?, thirst = ?, happiness = ?, age = age + ? WHERE id = ?', {
+                        petData.health,
+                        petData.hunger,
+                        petData.thirst,
+                        petData.happiness,
+                        Config.StatusDecay.Interval,
+                        dbId
+                    })
+                end
+            end
+        end
+        
+        -- Broadcast NUI sync event
+        for source, _ in pairs(Pet.players) do
+            TriggerClientEvent('keep-companion:client:updateNUI', source)
+        end
+    end
+end)
+
+-- Periodic XP Gain Thread
+CreateThread(function()
+    while true do
+        Wait(Config.XP.Interval * 1000)
+        
+        for source, activePets in pairs(Pet.players) do
+            local player = Framework.GetPlayer(source)
+            if player then
+                for dbId, petData in pairs(activePets) do
+                    local entity = NetworkGetEntityFromNetworkId(petData.netId)
+                    if entity and entity ~= 0 and DoesEntityExist(entity) and petData.health > 0 then
+                        -- Earn passive XP
+                        petData.xp = (petData.xp or 0) + Config.XP.PassiveAmount
+                        
+                        -- Calculate level up
+                        local currentLevel = petData.level or 1
+                        local xpNeeded = Config.XP.Formula(currentLevel)
+                        
+                        if petData.xp >= xpNeeded and currentLevel < Config.XP.MaxLevel then
+                            petData.level = currentLevel + 1
+                            petData.xp = petData.xp - xpNeeded
+                            Framework.Notify(source, string.format("Seu pet %s subiu de nível! Agora é Nível %d", petData.customName or petData.model, petData.level), "success")
+                        end
+                        
+                        -- Save to DB
+                        MySQL.update.await('UPDATE player_pets SET xp = ?, level = ? WHERE id = ?', {
+                            petData.xp,
+                            petData.level,
+                            dbId
+                        })
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ============================
+--     Usable Items (ox_inventory)
+-- ============================
+
+local function remove_item(src, name, amount)
+    return exports.ox_inventory:RemoveItem(src, name, amount)
 end
 
--- food
-QBCore.Functions.CreateUseableItem(core_items.food.item_name, function(source, item)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if Player == nil then return end
+-- Pet Food
+QBCore.Functions.CreateUseableItem(Config.core_items.food.item_name, function(source, item)
+    local activePetId = nil
+    local activePetData = nil
+    if Pet.players[source] then
+        for dbId, data in pairs(Pet.players[source]) do
+            activePetId = dbId
+            activePetData = data
+            break
+        end
+    end
+    
+    if not activePetId then
+        Framework.Notify(source, "Você não tem nenhum pet ativo!", "error")
+        return
+    end
+
     TriggerClientEvent('keep-companion:client:start_feeding_animation', source)
 end)
 
 RegisterNetEvent('keep-companion:server:increaseFood', function(item)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if Player == nil or item == nil then return end
-    if not remove_item(source, Player, Config.core_items.food.item_name, 1) then
-        TriggerClientEvent('QBCore:Notify', source, 'Failed to remove from your inventory', 'error', 2500)
-        return
-    end
-    local petData = Pet:findbyhash(source, item.metadata.hash)
-    petData.metadata.food = petData.metadata.food + 50
-    TriggerClientEvent('QBCore:Notify', source, 'Feeding was successful wait little bit to take effect!', 'success', 2500)
-end)
-
--- change owenership
-QBCore.Functions.CreateUseableItem(core_items.collar.item_name, function(source, item)
-    TriggerClientEvent('keep-companion:client:collar_process', source)
-end)
-
--- rename - name tag
-QBCore.Functions.CreateUseableItem(core_items.nametag.item_name, function(source, item)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if Player == nil or item == nil then return end
-    TriggerClientEvent('keep-companion:client:rename_name_tag', source, item)
-end)
-
-RegisterNetEvent('keep-companion:server:rename_name_tag', function(name)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if Player == nil then return end
-
-    if not remove_item(source, Player, Config.core_items.nametag.item_name, 1) then
-        TriggerClientEvent('QBCore:Notify', source, Lang:t('error.failed_to_remove_item_from_inventory'), 'error', 2500)
-        return
-    end
-
-    TriggerClientEvent("keep-companion:client:rename_name_tagAction", source, name)
-end)
-
--- first aid - revive
-QBCore.Functions.CreateUseableItem(core_items.firstaid.item_name, function(source, item)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if Player == nil then return end
-
-end)
-
-QBCore.Functions.CreateUseableItem(core_items.groomingkit.item_name, function(source, item)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if Player == nil then return end
-    TriggerClientEvent('keep-companion:client:start_grooming_process', source)
-end)
-
-RegisterNetEvent('keep-companion:server:grooming_process', function(item)
-    local pet_metadatarmation = find_pet_model_by_item_name(item.name)
-
-    local metadatarmation = {
-        pet_variation_list = PetVariation:getPedVariationsNameList(pet_metadatarmation.model),
-        pet_metadatarmation = pet_metadatarmation,
-        disable = {
-            rename = true
-        },
-        type = Config.core_items.groomingkit.item_name
-    }
-
-    TriggerClientEvent('keep-companion:client:initialization_process', source, item, metadatarmation)
-end)
-
-local function save_metadata_waterbottle(Player, item, amount)
-    local src = Player.PlayerData.source
-    local itemx = ox_inventory:GetSlot(src, item.slot)
-    if itemx then
-        item.metadata.type = 'clean'
-        item.metadata.liter = amount
-        -- print("269"..item.metadata.liter)
-        ox_inventory:SetMetadata(src, item.slot, item.metadata)
-    end
-    -- Player.Functions.SetInventory(Player.PlayerData.items, true)
-    -- if ox_inventory:GetSlot(src, item.slot) then
-    --     item.metadata.health = 0
-    --     ox_inventory:SetMetadata(source, item.slot, item.metadata.health)
-    -- end
-end
-
-local function initialize_metadata_waterbottle(Player, item)
-    local src = Player.PlayerData.source
-    if ox_inventory:GetSlot(src, item.slot) then
-        item.metadata.type = 'clean'
-        item.metadata.liter = 0
-        ox_inventory:SetMetadata(src, item.slot, item.metadata)
-    end
-    --Player.Functions.SetInventory(Player.PlayerData.items, true)
-end
-
-local function fillwater_bottle(source, item)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if Player == nil then return end
-    local max_c = Config.core_items.waterbottle.settings.max_capacity
-    local water_bottle_refill_value = Config.core_items.waterbottle.settings.water_bottle_refill_value
-    local amount = 0
-    
-    if type(item.metadata) ~= "table" or (type(item.metadata) == "table" and item.metadata.liter == nil) then
-        initialize_metadata_waterbottle(Player, item)
-        TriggerClientEvent('QBCore:Notify', source, 'Washing water bottle!', 'primary', 2500)
-        return
-    end
-
-    if item.metadata.liter == nil then
-        -- backup initialization
-        initialize_metadata_waterbottle(Player, item)
-        TriggerClientEvent('QBCore:Notify', source, 'Washing water bottle!', 'primary', 2500)
-        return
-    end
-
-    if item.metadata.liter > max_c then
-        TriggerClientEvent('QBCore:Notify', source, 'could not do that already reached max capacity', 'error', 2500)
-        return
-    elseif item.metadata.liter == max_c then
-        amount = max_c
-        TriggerClientEvent('QBCore:Notify', source, 'filling already filled bottle has no effect on capacity',
-            'error', 2500)
-    else
-        amount = item.metadata.liter + water_bottle_refill_value
-        if amount >= max_c then
-            amount = max_c
+    local source = source
+    local activePetId = nil
+    local activePetData = nil
+    if Pet.players[source] then
+        for dbId, data in pairs(Pet.players[source]) do
+            activePetId = dbId
+            activePetData = data
+            break
         end
     end
-    if type(amount) ~= "number" then
-        TriggerClientEvent('QBCore:Notify', source, 'Failed to get amount', 'error', 2500)
-        return
-    end
-    save_metadata_waterbottle(Player, item, amount)
-    TriggerClientEvent('QBCore:Notify', source, 'Filled bottle', 'success', 2500)
-end
 
-QBCore.Functions.CreateUseableItem(core_items.waterbottle.item_name, function(source, item)
-    local Player = QBCore.Functions.GetPlayer(source)
-    local water_bottle_refill_value = Config.core_items.waterbottle.settings.water_bottle_refill_value
-    if Player == nil then return end
-    if not remove_item(source, Player, 'water_bottle', water_bottle_refill_value) then
-        local msg = Lang:t('error.not_enough_water_bottles')
-        msg = string.format(msg, water_bottle_refill_value)
-        TriggerClientEvent('QBCore:Notify', source, msg, 'error', 2500)
+    if not activePetId then return end
+
+    if not remove_item(source, Config.core_items.food.item_name, 1) then
+        Framework.Notify(source, "Falha ao remover ração do seu inventário", "error")
         return
     end
+
+    activePetData.hunger = math.min(100, (activePetData.hunger or 100) + Config.core_items.food.settings.amount)
+    activePetData.xp = activePetData.xp + Config.XP.CaredAmount
+    
+    -- Level up check
+    local xpNeeded = Config.XP.Formula(activePetData.level)
+    if activePetData.xp >= xpNeeded and activePetData.level < Config.XP.MaxLevel then
+        activePetData.level = activePetData.level + 1
+        activePetData.xp = activePetData.xp - xpNeeded
+        Framework.Notify(source, string.format("Seu pet subiu de nível! Agora é Nível %d", activePetData.level), "success")
+    end
+
+    MySQL.update.await('UPDATE player_pets SET hunger = ?, xp = ?, level = ? WHERE id = ?', {
+        activePetData.hunger,
+        activePetData.xp,
+        activePetData.level,
+        activePetId
+    })
+
+    Framework.Notify(source, "Você alimentou seu pet!", "success")
+    TriggerClientEvent('keep-companion:client:updateNUI', source)
+end)
+
+-- Pet Water Bottle
+QBCore.Functions.CreateUseableItem(Config.core_items.waterbottle.item_name, function(source, item)
+    local activePetId = nil
+    if Pet.players[source] then
+        for dbId, _ in pairs(Pet.players[source]) do
+            activePetId = dbId
+            break
+        end
+    end
+    
+    if not activePetId then
+        Framework.Notify(source, "Você não tem nenhum pet ativo!", "error")
+        return
+    end
+
+    -- Trigger client animation
     TriggerClientEvent('keep-companion:client:filling_animation', source, item)
 end)
 
 RegisterNetEvent('keep-companion:server:filling_event', function(item)
-    fillwater_bottle(source, item)
-end)
-
-QBCore.Functions.CreateCallback('keep-companion:server:decrease_thirst', function(source, cb, data)
-    local pet_water_bottle = nil
-    local inventory = exports.ox_inventory:GetInventory(source)
-    for k,v in pairs(inventory.items) do
-        if v.name == Config.core_items.waterbottle.item_name then
-            pet_water_bottle = v
+    local src = source
+    local activePetId = nil
+    local activePetData = nil
+    if Pet.players[src] then
+        for dbId, data in pairs(Pet.players[src]) do
+            activePetId = dbId
+            activePetData = data
+            break
         end
     end
-    local player = QBCore.Functions.GetPlayer(source)
-    -- print("local item "..json.encode(data))
-    -- print("351", json.encode(pet_water_bottle.metadata))
-    if pet_water_bottle.metadata == nil then
-        TriggerClientEvent('QBCore:Notify', source, 'You should wash water bottle first!', 'error', 2500)
-        print('issue with nill metadata: https://github.com/swkeep/keep-companion/issues/25')
+
+    if not activePetId then return end
+
+    if not remove_item(src, Config.core_items.waterbottle.item_name, 1) then
+        Framework.Notify(src, "Garrafa de água vazia ou indisponível", "error")
         return
     end
 
-    if pet_water_bottle.metadata.liter == nil then
-        TriggerClientEvent('QBCore:Notify', source, 'You should wash water bottle first!', 'error', 2500)
-        print('maybe use your water bottle when there is some water_bottle s in your inventory')
-        print('developer: issue with nill metadata -> liter: https://github.com/swkeep/keep-companion/issues/25')
+    local refillValue = Config.core_items.waterbottle.settings.thirst_reduction_per_drinking
+    activePetData.thirst = math.min(100, (activePetData.thirst or 100) + refillValue)
+
+    MySQL.update.await('UPDATE player_pets SET thirst = ? WHERE id = ?', {activePetData.thirst, activePetId})
+    Framework.Notify(src, "Você deu água para seu pet!", "success")
+    TriggerClientEvent('keep-companion:client:updateNUI', src)
+end)
+
+-- Rename / Name Tag
+QBCore.Functions.CreateUseableItem(Config.core_items.nametag.item_name, function(source, item)
+    local activePetId = nil
+    if Pet.players[source] then
+        for dbId, _ in pairs(Pet.players[source]) do
+            activePetId = dbId
+            break
+        end
+    end
+    
+    if not activePetId then
+        Framework.Notify(source, "Você não tem nenhum pet ativo!", "error")
         return
     end
 
-    pet_water_bottle.metadata.liter = pet_water_bottle.metadata.liter -
-        Config.core_items.waterbottle.settings.water_bottle_refill_value
-    if pet_water_bottle.metadata.liter < 0 then
-        TriggerClientEvent('QBCore:Notify', source, Lang:t('error.not_enough_water_in_your_bottle'), 'error', 2500)
+    TriggerClientEvent('keep-companion:client:rename_name_tag', source, {metadata = {id = activePetId}})
+end)
+
+RegisterNetEvent('keep-companion:server:rename_name_tag', function(name)
+    local src = source
+    local activePetId = nil
+    if Pet.players[src] then
+        for dbId, _ in pairs(Pet.players[src]) do
+            activePetId = dbId
+            break
+        end
+    end
+
+    if not activePetId then return end
+
+    if not remove_item(src, Config.core_items.nametag.item_name, 1) then
+        Framework.Notify(src, "Você não tem uma etiqueta de nome!", "error")
         return
     end
 
-    local petData = Pet:findbyhash(source, data.metadata.hash)
-    local t_r_p_d = Config.core_items.waterbottle.settings.thirst_reduction_per_drinking
+    TriggerClientEvent("keep-companion:client:rename_name_tagAction", src, name)
+end)
 
-    if not pet_water_bottle then cb(false) return end
-
-    if petData.metadata.thirst < 0 then
-        petData.metadata.thirst = 0
+-- Pet Revive & First Aid
+QBCore.Functions.CreateUseableItem(Config.core_items.firstaid.item_name, function(source, item)
+    local activePetId = nil
+    if Pet.players[source] then
+        for dbId, _ in pairs(Pet.players[source]) do
+            activePetId = dbId
+            break
+        end
     end
 
-    if petData.metadata.thirst <= t_r_p_d then
-        petData.metadata.thirst = 0
-    else
-        petData.metadata.thirst = petData.metadata.thirst - t_r_p_d
+    if not activePetId then
+        Framework.Notify(source, "Você não tem nenhum pet ativo!", "error")
+        return
     end
 
-    TriggerClientEvent('QBCore:Notify', source, Lang:t('success.successful_drinking'), 'success', 2500)
-    save_metadata_waterbottle(player, pet_water_bottle, pet_water_bottle.metadata.liter)
+    TriggerClientEvent('keep-companion:client:useFirstAid', source)
 end)
 
 RegisterNetEvent('keep-companion:server:revivePet', function(item, process_type)
     local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    local petData = Pet:findbyhash(source, item.itemData.metadata.hash)
-    local heal_amount = Config.core_items.firstaid.settings.heal_amount
-    local revive_bonuses = Config.core_items.firstaid.settings.revive_heal_bonuses
-    local pet_maxHealth = getMaxHealth(item.model)
-    local potential_heal_amount = math.floor(pet_maxHealth * (heal_amount / 100))
-    local msg = ''
+    local activePetId = item.itemData.metadata.id
+    if not activePetId then return end
 
-    if not petData then
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.failed_to_start_procces') .. process_type, 'primary', 2500)
+    local petData = Pet.players[src][activePetId]
+    if not petData then return end
+
+    if not remove_item(src, Config.core_items.firstaid.item_name, 1) then
+        Framework.Notify(src, "Sem kit de primeiros socorros!", "error")
         return
     end
 
-    if petData.metadata.health >= pet_maxHealth then
-        -- pet has more than life more than correct max life rewrite wrong value
-        petData.metadata.health = pet_maxHealth
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('metadata.full_life_pet'), 'primary', 2500)
-        return
+    if petData.health <= 0 or process_type == 'revive' then
+        petData.health = 100
+        MySQL.update.await('UPDATE player_pets SET health = ? WHERE id = ?', {petData.health, activePetId})
+        TriggerClientEvent('keep-companion:client:despawn', src, {metadata = {id = activePetId}}, true)
+        Pet:setAsDespawned(src, activePetId)
+        Framework.Notify(src, "Seu pet foi reanimado e recolhido!", "success")
+    else
+        petData.health = 100
+        MySQL.update.await('UPDATE player_pets SET health = ? WHERE id = ?', {petData.health, activePetId})
+        TriggerClientEvent('keep-companion:client:update_health_value', src, {netId = petData.netId}, petData.health)
+        Framework.Notify(src, "Pet curado com sucesso!", "success")
     end
-
-    if not remove_item(source, Player, Config.core_items.firstaid.item_name, 1) then
-        TriggerClientEvent('QBCore:Notify', src, 'Failed to remove from your inventory', 'error', 2500)
-        return
-    end
-
-    if process_type and process_type == 'Heal' then
-        local res = math.floor(petData.metadata.health + potential_heal_amount)
-        petData.metadata.health = res
-        if petData.metadata.health >= pet_maxHealth then
-            petData.metadata.health = pet_maxHealth
-        end
-
-        Pet:save_all_metadata(src, item.itemData.metadata.hash)
-        msg = Lang:t('success.healing_was_successful')
-        msg = string.format(msg, petData.metadata.health, pet_maxHealth)
-        TriggerClientEvent('keep-companion:client:update_health_value', src, item, petData.metadata.health)
-        TriggerClientEvent('QBCore:Notify', src, msg, 'success', 2500)
-        return
-    end
-
-    petData.metadata.health = 100 + revive_bonuses
-    Pet:save_all_metadata(src, item.itemData.metadata.hash) -- save pet's data
-    Pet:despawnPet(src, petData, true) -- despawn dead pet
-    msg = Lang:t('success.successful_revive')
-    msg = string.format(msg, item.itemData.metadata.name)
-    TriggerClientEvent('QBCore:Notify', src, msg, 'success', 2500)
 end)
 
---- get pet max health from confing file by it's model
+-- Register Pet Items as usable items
+for _, pet in ipairs(Config.pets) do
+    QBCore.Functions.CreateUseableItem(pet.name, function(source, item)
+        local citizenid = Framework.GetCitizenId(source)
+        if not citizenid then return end
+
+        local petId = item.metadata and item.metadata.id
+        if petId then
+            -- Item already has an associated pet ID!
+            -- Check ownership of this pet in the database
+            local dbPet = MySQL.single.await('SELECT * FROM player_pets WHERE id = ? AND citizenid = ?', {petId, citizenid})
+            if not dbPet then
+                Framework.Notify(source, "Este pet pertence a outro jogador ou não existe!", "error")
+                return
+            end
+
+            -- Toggle spawn/despawn
+            if Pet.players[source] and Pet.players[source][petId] then
+                -- Despawn
+                TriggerClientEvent('keep-companion:client:despawn', source, {metadata = {id = petId}}, false)
+            else
+                -- Spawn
+                -- Despawn any existing active pet first
+                if Pet.players[source] then
+                    for dbId, _ in pairs(Pet.players[source]) do
+                        TriggerClientEvent('keep-companion:client:despawn', source, {metadata = {id = dbId}}, true)
+                        Pet:setAsDespawned(source, dbId)
+                    end
+                end
+
+                local petConfig = nil
+                for _, cfg in pairs(Config.pets) do
+                    if cfg.model == dbPet.model then
+                        petConfig = cfg
+                        break
+                    end
+                end
+
+                TriggerClientEvent('keep-companion:client:callCompanion', source, dbPet.model, false, {
+                    id = dbPet.id,
+                    name = petConfig and petConfig.name or dbPet.model,
+                    metadata = {
+                        id = dbPet.id,
+                        name = dbPet.name,
+                        gender = dbPet.gender == 'female',
+                        age = dbPet.age,
+                        food = dbPet.hunger,
+                        thirst = dbPet.thirst,
+                        happiness = dbPet.happiness,
+                        level = dbPet.level,
+                        XP = dbPet.xp,
+                        health = dbPet.health,
+                        variation = dbPet.variation
+                    }
+                })
+                Framework.Notify(source, "Chamando seu pet...", "success")
+            end
+        else
+            -- This is a new pet item! Let's register it in the DB for the player
+            local petConfig = nil
+            for _, cfg in pairs(Config.pets) do
+                if cfg.name == item.name then
+                    petConfig = cfg
+                    break
+                end
+            end
+
+            if not petConfig then
+                Framework.Notify(source, "Modelo do pet inválido!", "error")
+                return
+            end
+
+            -- Insert pet into DB with default values
+            local id = MySQL.insert.await('INSERT INTO player_pets (citizenid, name, model, gender, variation, age, level, xp, health, hunger, thirst, happiness) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', {
+                citizenid,
+                petConfig.name:gsub("keepcompanion", ""):gsub("^%l", string.upper),
+                petConfig.model,
+                'male',
+                'dark',
+                0,
+                1,
+                0,
+                100,
+                100,
+                100,
+                100
+            })
+
+            if id then
+                -- Save pet ID to this item's metadata so it is registered
+                local newMetadata = item.metadata or {}
+                newMetadata.id = id
+                newMetadata.name = petConfig.name:gsub("keepcompanion", ""):gsub("^%l", string.upper)
+                newMetadata.variation = 'dark'
+                
+                exports.ox_inventory:SetMetadata(source, item.slot, newMetadata)
+
+                Framework.Notify(source, "Você registrou um novo pet! Personalize-o agora.", "success")
+                
+                -- Trigger immediate customization process!
+                local metadatarmation = {
+                    pet_variation_list = PetVariation:getPedVariationsNameList(petConfig.model),
+                    pet_metadatarmation = petConfig,
+                    disable = { rename = false },
+                    type = 'init'
+                }
+                TriggerClientEvent('keep-companion:client:initialization_process', source, {
+                    name = petConfig.name,
+                    slot = item.slot,
+                    metadata = {
+                        id = id,
+                        name = newMetadata.name,
+                        variation = 'dark'
+                    }
+                }, metadatarmation)
+
+                TriggerClientEvent('keep-companion:client:updateNUI', source)
+            end
+        end
+    end)
+end
+
 function getMaxHealth(model)
-    for key, value in pairs(Config.pets) do
+    for _, value in pairs(Config.pets) do
         if value.model == model then
             return value.maxHealth
         end
     end
+    return 200
 end
 
--- all pets
-for key, value in pairs(Config.pets) do
-    QBCore.Functions.CreateUseableItem(value.name, function(source, item)
-        if item.name ~= value.name then return end
-        local model = value.model
-        -- need inital values
-        if type(item.metadata) ~= "table" or (type(item.metadata) == "table" and item.metadata.hash == nil) then
-            -- init companion
-            initItem(source, item)
-            TriggerClientEvent('QBCore:Notify', source, Lang:t('success.pet_initialization_was_successful'), 'success',
-                2500)
-            return
-        end
+-- Customization confirms (nui_customization.lua confirms it)
+RegisterNetEvent('keep-companion:server:compelete_initialization_process', function(item, process_type)
+    local src = source
+    local citizenid = Framework.GetCitizenId(src)
+    if not citizenid or not item.metadata.id then return end
 
-        local cooldown = PlayersCooldown:isOnCooldown(source)
-        if cooldown > 0 then
-            local msg = Lang:t('metadata.still_on_cooldown')
-            msg = string.format(msg, (cooldown / 1000))
-            TriggerClientEvent('QBCore:Notify', source, msg, 'primary', 2500)
-            return
-        end
+    MySQL.update.await('UPDATE player_pets SET name = ?, variation = ? WHERE id = ? AND citizenid = ?', {
+        item.metadata.name,
+        item.metadata.variation,
+        item.metadata.id,
+        citizenid
+    })
 
-        Pet:spawnPet(source, model, item)
-    end)
-end
+    if item.slot and item.slot > 0 then
+        exports.ox_inventory:SetMetadata(src, item.slot, item.metadata)
+    end
+
+    Framework.Notify(src, "Configurações do pet salvas!", "success")
+    TriggerClientEvent('keep-companion:client:updateNUI', src)
+end)
+
+-- Pet collar change ownership
+QBCore.Functions.CreateCallback('keep-companion:server:collar_change_owenership', function(source, cb, data)
+    local player_owner = QBCore.Functions.GetPlayer(source)
+    if not player_owner then return cb({state = false, msg = "Dono não encontrado"}) end
+    
+    local targetSource = tonumber(data.new_owner_cid)
+    local player_new_owner = QBCore.Functions.GetPlayer(targetSource)
+    
+    if not player_new_owner then
+        return cb({state = false, msg = "ID do jogador de destino não encontrado"})
+    end
+
+    local targetCitizenId = player_new_owner.PlayerData.citizenid
+    local petId = data.id or data.hash -- using id directly
+
+    local pet = MySQL.single.await('SELECT * FROM player_pets WHERE id = ? AND citizenid = ?', {petId, player_owner.PlayerData.citizenid})
+    if not pet then
+        return cb({state = false, msg = "Pet não encontrado ou não pertence a você"})
+    end
+
+    if not remove_item(source, 'collarpet', 1) then
+        return cb({state = false, msg = "Você não possui uma coleira de pet"})
+    end
+
+    -- Despawn if currently spawned
+    if Pet.players[source] and Pet.players[source][petId] then
+        TriggerClientEvent('keep-companion:client:despawn', source, {metadata = {id = petId}}, true)
+        Pet.players[source][petId] = nil
+    end
+
+    -- Update Database Owner
+    MySQL.update.await('UPDATE player_pets SET citizenid = ?, active = 0 WHERE id = ?', {targetCitizenId, petId})
+
+    cb({state = true, msg = "Transferência de propriedade concluída!"})
+end)
+
+-- Clean exit on drop
+AddEventHandler('playerDropped', function()
+    local src = source
+    if Pet.players[src] then
+        for dbId, petData in pairs(Pet.players[src]) do
+            if petData.entity and DoesEntityExist(petData.entity) then
+                DeleteEntity(petData.entity)
+            end
+            MySQL.update.await('UPDATE player_pets SET active = 0 WHERE id = ?', {dbId})
+        end
+        Pet.players[src] = nil
+    end
+end)
+
+RegisterNetEvent('keep-companion:server:onPlayerUnload', function()
+    local src = source
+    if Pet.players[src] then
+        for dbId, petData in pairs(Pet.players[src]) do
+            if petData.entity and DoesEntityExist(petData.entity) then
+                DeleteEntity(petData.entity)
+            end
+            Pet:setAsDespawned(src, dbId)
+        end
+        Pet.players[src] = nil
+    end
+end)
+
+-- Grooming Kit
+QBCore.Functions.CreateUseableItem(Config.core_items.groomingkit.item_name, function(source, item)
+    local activePetId = nil
+    if Pet.players[source] then
+        for dbId, _ in pairs(Pet.players[source]) do
+            activePetId = dbId
+            break
+        end
+    end
+    
+    if not activePetId then
+        Framework.Notify(source, "Você não tem nenhum pet ativo!", "error")
+        return
+    end
+
+    TriggerClientEvent('keep-companion:client:start_grooming_process', source)
+end)
+
+RegisterNetEvent('keep-companion:server:grooming_process', function(item)
+    local src = source
+    local activePetId = nil
+    local activePetData = nil
+    if Pet.players[src] then
+        for dbId, data in pairs(Pet.players[src]) do
+            activePetId = dbId
+            activePetData = data
+            break
+        end
+    end
+
+    if not activePetId then return end
+
+    local pet_metadatarmation = nil
+    for _, cfg in pairs(Config.pets) do
+        if cfg.name == activePetData.name then
+            pet_metadatarmation = cfg
+            break
+        end
+    end
+    if not pet_metadatarmation then return end
+
+    local metadatarmation = {
+        pet_variation_list = PetVariation:getPedVariationsNameList(pet_metadatarmation.model),
+        pet_metadatarmation = pet_metadatarmation,
+        disable = { rename = true },
+        type = Config.core_items.groomingkit.item_name
+    }
+
+    TriggerClientEvent('keep-companion:client:initialization_process', src, {
+        name = activePetData.name,
+        slot = 0,
+        metadata = {
+            id = activePetId,
+            name = activePetData.customName,
+            variation = activePetData.variation
+        }
+    }, metadatarmation)
+end)
+
+-- ============================
+--        K9 Search Functions
+-- ============================
 
 local function search_inventory(cid)
     local Player = QBCore.Functions.GetPlayer(cid)
-    local src = Player.PlayerData.source
     if not Player then return false end
-    local count = 0
-    for k, illegal_item in pairs(Config.k9.illegal_items) do
+    local src = Player.PlayerData.source
+    
+    for _, illegal_item in pairs(Config.k9.illegal_items) do
         local item = exports.ox_inventory:GetItem(src, illegal_item, nil, false)
-        if item then
-            count = count + 1
-            if count > 0 then
-                return true
-            end
+        if item and item.count > 0 then
+            return true
         end
     end
     return false
@@ -499,11 +941,6 @@ end
 
 QBCore.Functions.CreateCallback('keep-companion:server:search_inventory', function(source, cb, cid)
     local res = search_inventory(cid)
-    if not res then
-        TriggerClientEvent('QBCore:Notify', source, 'K9 could not find anything!', 'error', 2500)
-        cb(res)
-        return
-    end
     cb(res)
 end)
 
@@ -518,8 +955,8 @@ local function search_vehicle(Type, plate)
     end
 
     if items_list then
-        for key, item in pairs(items_list.items) do
-            for k, i_name in pairs(illegal_items) do
+        for _, item in pairs(items_list.items) do
+            for _, i_name in pairs(illegal_items) do
                 if item.name == i_name then
                     return true
                 end
@@ -531,177 +968,127 @@ end
 
 QBCore.Functions.CreateCallback('keep-companion:server:search_vehicle', function(source, cb, data)
     local res = search_vehicle(data.key, data.plate)
-    if not res then
-        TriggerClientEvent('QBCore:Notify', source, 'K9 could not find anything!', 'error', 2500)
-        cb(res)
-        return
-    end
-    TriggerClientEvent('QBCore:Notify', source, 'K9 found something', 'success', 2500)
     cb(res)
 end)
--- ================================================
---          Item - Updating metadatarmation
--- ================================================
-function FindWhereIsItem(Player, item, source)
-    local inv = exports.ox_inventory:GetInventory(source)
-    if inv == nil or next(inv) == nil then
-        TriggerClientEvent('QBCore:Notify', source, "no items in inventory!")
-        return false
+
+-- Admin Spawn Command (inserts into DB)
+QBCore.Commands.Add('givepet', 'Dá um pet a um jogador (Admin Only)', {{name='id', help='ID do Jogador'}, {name='model', help='Modelo do Pet (e.g. A_C_Westy)'}}, true, function(source, args)
+    local targetId = tonumber(args[1])
+    local petModel = args[2]
+    
+    local Player = QBCore.Functions.GetPlayer(targetId)
+    if not Player then
+        Framework.Notify(source, "Jogador não online", "error")
+        return
     end
-    for k, v in pairs(inv) do
-        local slot = exports.ox_inventory:GetSlot(source, k)
-        if slot ~= nil then
-            if slot.metadata.hash == item.hash then
-                return slot
-            end
+
+    local petConfig = nil
+    for _, cfg in pairs(Config.pets) do
+        if cfg.model == petModel then
+            petConfig = cfg
+            break
         end
     end
-    TriggerClientEvent('QBCore:Notify', source, "Could not find pet")
-    return false
-end
 
-RegisterNetEvent('keep-companion:server:updateAllowedmetadata', function(item, data)
-    if type(data) ~= "table" or next(data) == nil then return end
-    local Player = QBCore.Functions.GetPlayer(source)
-    local current_pet_data = Pet:findbyhash(source, item.hash)
-    if current_pet_data == nil or current_pet_data == false then return end
-    local requestedItem = exports.ox_inventory:GetItem(source,current_pet_data.name, nil, false )
-
-    if type(requestedItem) == "table" then
-        for key, pet_item in pairs(requestedItem) do
-            if pet_item.metadata.hash == item.hash then
-                requestedItem = pet_item
-            end
-        end
-        if requestedItem == false then return end
-    end
-
-    if data.key == 'XP' then
-        Update:xp(source, current_pet_data)
+    if not petConfig then
+        Framework.Notify(source, "Modelo de pet inválido!", "error")
         return
     end
 
-    Update:health(source, data, current_pet_data)
-end)
+    local citizenid = Player.PlayerData.citizenid
 
-QBCore.Functions.CreateCallback('keep-companion:server:renamePet', function(source, cb, item)
-    local player = QBCore.Functions.GetPlayer(source)
-    local current_pet_data = Pet:findbyhash(source, item.hash)
+    local id = MySQL.insert.await('INSERT INTO player_pets (citizenid, name, model, gender, variation, age, level, xp, health, hunger, thirst, happiness) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', {
+        citizenid,
+        petConfig.name,
+        petModel,
+        'male',
+        'dark',
+        0,
+        1,
+        0,
+        100,
+        100,
+        100,
+        100
+    })
 
-    -- sanity check
-    if player == nil or current_pet_data == nil or current_pet_data == false or type(item.name) ~= "string" then
-        local msg = Lang:t('error.failed_to_rename')
-        msg = string.format(msg, item.name)
-        TriggerClientEvent('QBCore:Notify', source, msg, 'error')
-        cb(false)
-        return
+    if id then
+        Framework.Notify(targetId, "Você recebeu um novo pet! Abra o menu para personalizá-lo.", "success")
+        TriggerClientEvent('keep-companion:client:updateNUI', targetId)
     end
+end, 'admin')
 
-    if current_pet_data.metadata.name == item.content then
-        local msg = Lang:t('error.failed_to_rename_same_name')
-        msg = string.format(msg, item.name)
-        TriggerClientEvent('QBCore:Notify', source, msg, 'error')
-        cb(false)
-        return
-    end
-
-    current_pet_data.metadata.name = item.name
-    Pet:save_all_metadata(source, item.hash) -- save name outside loop
-    -- despawn pet to save name
-    Pet:despawnPet(source, { metadata = {
-        hash = item.hash
-    } }, true)
-    cb(item.name)
-end)
-
--- saving thread
-CreateThread(function()
-    -- #TODO add check to table changes
-    while true do
-        for source, activePets in pairs(Pet.players) do
-            if next(activePets) ~= nil then
-
-                for hash, petData in pairs(activePets) do
-                    Pet:save_all_metadata(source, hash)
-                end
-
-            end
-        end
-        Wait(server_saving_interval)
-    end
-end)
-
-
-QBCore.Functions.CreateCallback('keep-companion:server:updatePedData', function(source, cb, clientRes)
-    local player = QBCore.Functions.GetPlayer(source)
-    if player == nil then
-        cb(false)
-        return
-    end
-    if Pet:setAsSpawned(source, clientRes) then
-        cb(true)
-        return
-    end
-    cb(false)
-end)
-
-RegisterNetEvent('keep-companion:server:onPlayerUnload', function(items)
-    -- save pet's metadatarmation when player logout
-    for key, value in pairs(items) do
-        Pet:setAsDespawned(source, value)
-    end
-end)
-
--- ============================
---          Commands
--- ============================
-
-QBCore.Commands.Add('addpet', 'add a pet to player inventory (Admin Only)', {}, false, function(source, args)
-    local PETname = args[1]
+-- Cancel pet initialization (delete DB entry)
+RegisterNetEvent('keep-companion:server:cancelPetInitialization', function(petId)
     local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
+    local citizenid = Framework.GetCitizenId(src)
+    if not citizenid or not petId then return end
 
-    Player.Functions.AddItem(PETname, 1)
-    TriggerClientEvent("inventory:client:ItemBox", src, QBCore.Shared.Items[PETname], "add")
-end, 'admin')
-
-QBCore.Commands.Add('addItem', 'add item to player inventory (Admin Only)', {}, false, function(source, item)
-    local Player = QBCore.Functions.GetPlayer(source)
-    Player.Functions.AddItem(item[1], 1)
-    TriggerClientEvent("inventory:client:ItemBox", source, QBCore.Shared.Items[ item[1] ], "add")
-end, 'admin')
-
-QBCore.Commands.Add('renamePet', 'rename pet', { { "name", "new pet name" } }, false, function(source, args)
-    TriggerClientEvent("keep-companion:client:rename_name_tag", source, args[1])
-end, 'admin')
-
--- ============================
---           Cooldown
--- ============================
-
--- start active cooldowns
-Citizen.CreateThread(function()
-    local timeToClean = 600 -- sec
-    local count = 0
-    while true do
-        Wait(1000)
-        count = count + 1
-        local size = PlayersCooldown:onlinePlayers()
-        if size > 0 then
-            for ped, cooldown in pairs(PlayersCooldown.players) do
-                PlayersCooldown:updateCooldown(ped)
-            end
-        end
-
-        -- remove offline player from cooldown list
-        if count >= timeToClean and not count == 0 then
-            PlayersCooldown:cleanOflinePlayers()
-            count = 0
-        end
-    end
+    MySQL.query.await('DELETE FROM player_pets WHERE id = ? AND citizenid = ?', {petId, citizenid})
+    Framework.Notify(src, "Criação do pet cancelada.", "error")
+    TriggerClientEvent('keep-companion:client:updateNUI', src)
 end)
 
-RegisterNetEvent('keep-companion:server:ForceRemoveNetEntity', function(netId)
-    local net = NetworkGetEntityFromNetworkId(netId)
-    DeleteEntity(net)
+-- Buy Pet Event (triggered by ox_lib shop)
+RegisterNetEvent('mri_Qpets:server:buyPet', function(petIndex)
+    local src = source
+    local petCfg = Config.pets[petIndex]
+    if not petCfg then return end
+
+    local price = petCfg.price or 5000
+    local cash = Framework.GetPlayerMoney(src, 'cash')
+    local bank = Framework.GetPlayerMoney(src, 'bank')
+    local payMethod = nil
+
+    if cash >= price then
+        payMethod = 'cash'
+    elseif bank >= price then
+        payMethod = 'bank'
+    end
+
+    if not payMethod then
+        Framework.Notify(src, "Você não tem dinheiro suficiente!", "error")
+        return
+    end
+
+    if Framework.RemovePlayerMoney(src, price, payMethod) then
+        local citizenid = Framework.GetCitizenId(src)
+        
+        -- Insert pet into DB with default values
+        local id = MySQL.insert.await('INSERT INTO player_pets (citizenid, name, model, gender, variation, age, level, xp, health, hunger, thirst, happiness) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', {
+            citizenid,
+            petCfg.name:gsub("keepcompanion", ""):gsub("^%l", string.upper),
+            petCfg.model,
+            'male',
+            'dark',
+            0,
+            1,
+            0,
+            100,
+            100,
+            100,
+            100
+        })
+
+        if id then
+            Framework.Notify(src, string.format("Você comprou um %s por $%d!", petCfg.model, price), "success")
+            
+            -- Trigger immediate customization process!
+            local metadatarmation = {
+                pet_variation_list = PetVariation:getPedVariationsNameList(petCfg.model),
+                pet_metadatarmation = petCfg,
+                disable = { rename = false },
+                type = 'init'
+            }
+            TriggerClientEvent('keep-companion:client:initialization_process', src, {
+                name = petCfg.name,
+                slot = 0,
+                metadata = {
+                    id = id,
+                    name = petCfg.name:gsub("keepcompanion", ""):gsub("^%l", string.upper),
+                    variation = 'dark'
+                }
+            }, metadatarmation)
+        end
+    end
 end)

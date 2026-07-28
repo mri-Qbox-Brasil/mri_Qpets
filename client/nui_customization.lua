@@ -69,10 +69,10 @@ RegisterNUICallback('closeCustomization', function(data, cb)
     -- FIRST: Close NUI focus immediately
     SetNuiFocus(false, false)
     
-    -- THEN: Trigger server to delete the item
-    if data.item and data.item.slot then
-        print('[NUI Customization] Deleting item from slot:', data.item.slot)
-        TriggerServerEvent('keep-companion:server:cancelPetInitialization', data.item.slot)
+    -- THEN: Trigger server to delete the pet entry from database
+    if data.item and data.item.metadata and data.item.metadata.id then
+        print('[NUI Customization] Cancelling pet initialization for ID:', data.item.metadata.id)
+        TriggerServerEvent('keep-companion:server:cancelPetInitialization', data.item.metadata.id)
     end
     
     -- Respond to callback

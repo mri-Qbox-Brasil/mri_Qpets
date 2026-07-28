@@ -4,6 +4,30 @@ Config = Config or {}
 Config.MaxActivePetsPetPlayer = 1
 Config.DataUpdateInterval = 10
 
+-- Framework & DB Settings
+Config.Framework = 'qbox'
+Config.DBTable = 'player_pets'
+Config.Debug = true
+
+Config.StatusDecay = {
+    Interval = 30, -- seconds between decay updates
+    Hunger = 1.0, -- hunger points decayed per interval
+    Thirst = 1.2, -- thirst points decayed per interval
+    Happiness = 0.5, -- happiness points decayed per interval
+    HealthHungerZero = 2.0, -- health points lost per interval when hunger is 0
+    HealthThirstZero = 3.0, -- health points lost per interval when thirst is 0
+}
+
+Config.XP = {
+    Interval = 60, -- seconds between passive XP updates
+    PassiveAmount = 10, -- XP gained passively when active
+    CaredAmount = 25, -- XP gained when fed, watered, or petted
+    MaxLevel = 30,
+    Formula = function(level)
+        return math.floor(100 * math.pow(1.5, level - 1)) -- XP required for next level
+    end
+}
+
 Config.Settings = {
     let_players_cutomize_their_pet_after_purchase = true,
     callCompanionDuration = 2, -- sec
@@ -198,5 +222,8 @@ Config.k9 = {
     illegal_items = illegal_items,
     models = {
         'a_c_k9',
+        'a_c_shepherd',
+        'a_c_rottweiler',
+        'a_c_husky'
     }
 }

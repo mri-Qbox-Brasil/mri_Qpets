@@ -3,11 +3,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { fetchNui } from '../utils/fetchNui';
 
 export function MenuDialog() {
   const { isOpen, title, description, items, closeMenu } = useMenuStore();
 
   if (!isOpen) return null;
+
+  const handleClose = () => {
+    fetchNui('closeMenu');
+    closeMenu();
+  };
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-[9999] p-4 pointer-events-auto">
@@ -21,7 +27,7 @@ export function MenuDialog() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={closeMenu}
+              onClick={handleClose}
               className="hover:bg-destructive/20 hover:text-destructive"
             >
               <X className="w-5 h-5" />
@@ -35,7 +41,7 @@ export function MenuDialog() {
               key={item.id}
               onClick={() => {
                 if (!item.disabled) {
-                  item.onClick();
+                  fetchNui('clickMenuItem', { id: item.id });
                   closeMenu();
                 }
               }}

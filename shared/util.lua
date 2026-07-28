@@ -1,3 +1,34 @@
+if not Locale then
+    Locale = {}
+    Locale.__index = Locale
+    function Locale:new(obj)
+        local o = obj or {}
+        setmetatable(o, self)
+        return o
+    end
+    function Locale:t(key, ...)
+        local keys = {}
+        for k in string.gmatch(key, "[^.]+") do
+            table.insert(keys, k)
+        end
+        local current = self.phrases
+        for _, k in ipairs(keys) do
+            if current and current[k] then
+                current = current[k]
+            else
+                return key
+            end
+        end
+        if type(current) == "string" then
+            if ... then
+                return string.format(current, ...)
+            end
+            return current
+        end
+        return key
+    end
+end
+
 function tprint(tbl, indent)
     if not indent then
         indent = 0

@@ -1,29 +1,7 @@
 QBCore = exports['qb-core']:GetCoreObject()
 
 local isMenuOpen = false
-PlayerData = nil
-PlayerJob = nil
 
-local alreadyHunting = {
-    state = false
-}
-
-local function updatePlayerJob()
-    repeat
-        Wait(10)
-    until QBCore.Functions.GetPlayerData().job ~= nil
-    PlayerData =  QBCore.Functions.GetPlayerData()
-    PlayerJob = QBCore.Functions.GetPlayerData().job
-end
-
-local function isModelK9(model)
-    for key, k9 in pairs(Config.k9.models) do
-        if model == k9 then
-            return true
-        end
-    end
-    return false
-end
 
 -- action menu
 local menu = {
@@ -121,8 +99,7 @@ local menu = {
         lable = 'Search Car',
         TYPE = 'SearchCar',
         show = function(activePed)
-            if not PlayerJob then return false end
-            if not (PlayerJob.name == 'police') then return false end
+            if not PlayerJob or not Framework.IsPoliceJob(PlayerJob.name) then return false end
             return isModelK9(activePed.model)
         end,
         action = function(plyped, activePed)
@@ -150,7 +127,7 @@ function k9SearchVehicle(veh, activePed)
         return
     end
     if not PlayerJob then return end
-    if not (PlayerJob.name == 'police') then
+    if not Framework.IsPoliceJob(PlayerJob.name) then
         QBCore.Functions.Notify('Você não tem permissão para fazer esta ação', "error", 1500)
         return
     end
@@ -282,22 +259,42 @@ end
 
 -- Command
 AddEventHandler('keep-companion:client:actionMenuDispatcher', function(option)
-    local plyped = PlayerPedId()
-    local activePed = ActivePed.read()
-    activePed.entity = NetworkGetEntityFromNetworkId(activePed.netId)
-    for key, values in pairs(option.menu) do
-        if option.type == values.TYPE then
-            if values.action(plyped, activePed) == true then
-                if values.triggerNotification ~= nil then
-                    QBCore.Functions.Notify(replaceString(values.triggerNotification[1]), 'success', 1500)
-                end
-            else
-                if values.triggerNotification ~= nil then
-                    QBCore.Functions.Notify(replaceString(values.triggerNotification[2]))
+    CreateThread(function()
+        local plyped = PlayerPedId()
+        local activePed = ActivePed.read()
+        if not activePed then
+            QBCore.Functions.Notify(Lang:t('error.no_pet_under_control'), 'error', 5000)
+            return
+        end
+
+        -- Refresh the handle dynamically from netId to avoid stale local entity variables
+        if activePed.netId then
+            local resolvedEntity = NetworkGetEntityFromNetworkId(activePed.netId)
+            if resolvedEntity and resolvedEntity ~= 0 then
+                activePed.entity = resolvedEntity
+            end
+        end
+
+        if not activePed.entity or not DoesEntityExist(activePed.entity) then
+            QBCore.Functions.Notify("Entidade do pet não encontrada!", 'error', 5000)
+            return
+        end
+
+        for key, values in pairs(option.menu) do
+            if option.type == values.TYPE then
+                local success = values.action(plyped, activePed)
+                if success == true then
+                    if values.triggerNotification ~= nil then
+                        QBCore.Functions.Notify(replaceString(values.triggerNotification[1]), 'success', 1500)
+                    end
+                else
+                    if values.triggerNotification ~= nil then
+                        QBCore.Functions.Notify(replaceString(values.triggerNotification[2]))
+                    end
                 end
             end
         end
-    end
+    end)
 end)
 
 function get_correct_icon(model)
@@ -421,16 +418,30 @@ AddEventHandler('keep-companion:client:action_menu', function()
     
     -- MIGRATED TO REACT UI
     local menuItems = {}
-    for _, action in ipairs(actions) do
-        table.insert(menuItems, {
-            id = action.action,
-            label = action.label,
-            description = action.description,
-            icon = action.icon or '🐾',
-            disabled = action.disabled or false,
-            onClick = action.event and function() TriggerEvent(action.event) end or function() end
-        })
+    for _, value in ipairs(menu) do
+        local showAction = true
+        if value.show then
+            showAction = value.show(ActivePed.read())
+        end
+        
+        if showAction then
+            table.insert(menuItems, {
+                id = value.TYPE,
+                label = value.lable,
+                description = value.desc or "",
+                icon = '🐾'
+            })
+        end
     end
+    
+    -- Tricks option
+    table.insert(menuItems, {
+        id = 'Tricks',
+        label = Lang:t('menu.action_menu.tricks'),
+        description = 'Fazer truques com o pet',
+        icon = '⭐'
+    })
+    
     exports['mri_Qpets']:openReactMenu('Ações do Pet', menuItems)
     
     --[[ OLD OX_LIB MENU
@@ -438,56 +449,42 @@ AddEventHandler('keep-companion:client:action_menu', function()
     ]]--
 end)
 
+RegisterNetEvent('keep-companion:client:clickMenuItem', function(itemId)
+    if itemId == 'Tricks' then
+        TriggerEvent('keep-companion:client:tricks_menu')
+    elseif string.sub(itemId, 1, 6) == 'trick_' then
+        local trickType = string.sub(itemId, 7)
+        TriggerEvent('keep-companion:client:actionMenuDispatcher', {
+            type = trickType,
+            menu = menu2
+        })
+    else
+        TriggerEvent('keep-companion:client:actionMenuDispatcher', {
+            type = itemId,
+            menu = menu
+        })
+    end
+end)
+
+
 AddEventHandler('keep-companion:client:tricks_menu', function()
-    local name = ActivePed.read().itemData.metadata.name
-    local header = string.format(Lang:t('menu.tricks.header'), name)
-    local sub_header = Lang:t('menu.tricks.sub_header')
-    local model = ActivePed.read().model
-    local icon = get_correct_icon(model)
-
-    -- header
-    local openMenu = {
-        {
-            header = Lang:t('menu.general_menu_items.btn_back'),
-            icon = 'fa-solid fa-angle-left',
-            params = {
-                event = "keep-companion:client:action_menu",
-            }
-        },
-        {
-            header = header,
-            txt = sub_header,
-            icon = icon,
-            isMenuHeader = true
-        }
-    }
-
-    for key, value in pairs(menu2) do
-        openMenu[#openMenu + 1] = {
-            header = value.lable,
-            txt = value.desc or "",
-            icon = value.icon,
-            params = {
-                event = "keep-companion:client:actionMenuDispatcher",
-                args = {
-                    type = value.TYPE,
-                    menu = menu2
-                }
-            }
-        }
+    local activePed = ActivePed.read()
+    if not activePed then
+        QBCore.Functions.Notify(Lang:t('error.no_pet_under_control'), 'error', 5000)
+        return
     end
 
-    -- leave menu
-    openMenu[#openMenu + 1] = {
-        header = Lang:t('menu.general_menu_items.btn_leave'),
-        txt = "",
-        icon = 'fa-solid fa-circle-xmark',
-        params = {
-            event = "qb-menu:closeMenu"
-        }
-    }
+    local menuItems = {}
+    for _, value in ipairs(menu2) do
+        table.insert(menuItems, {
+            id = 'trick_' .. value.TYPE,
+            label = value.lable,
+            description = 'Executar truque ' .. value.lable,
+            icon = '⭐'
+        })
+    end
 
-    exports['qb-menu']:openMenu(openMenu)
+    exports['mri_Qpets']:openReactMenu('Truques do Pet', menuItems)
 end)
 
 AddEventHandler('keep-companion:client:switchControl_menu', function()
@@ -546,21 +543,28 @@ AddEventHandler('keep-companion:client:switchControl_event', function(option)
     TriggerEvent('keep-companion:client:action_menu')
 end)
 
+local function Ishandcuffed()
+    local PlayerData = Framework.GetPlayerData()
+    if PlayerData and PlayerData.metadata then
+        return PlayerData.metadata["ishandcuffed"] or PlayerData.metadata["handcuffed"] or false
+    end
+    return false
+end
+
 local function IsPoliceOrEMS()
-    return (PlayerJob.name == "police" or PlayerJob.name == "ambulance")
+    return (PlayerJob and (PlayerJob.name == "police" or PlayerJob.name == "ambulance"))
 end
 
 local function IsDowned()
-    return (PlayerData.metadata["isdead"] or PlayerData.metadata["inlaststand"])
+    return (PlayerData and PlayerData.metadata and (PlayerData.metadata["isdead"] or PlayerData.metadata["inlaststand"]))
 end
 -- ============================
 --         Keybinds
 -- ============================
 
 RegisterCommand('+showMenu', function()
-    if ActivePed.read() then
-        -- MIGRATED TO REACT UI
-        TriggerEvent('keep-companion:client:action_menu')
+    if ((IsDowned() and IsPoliceOrEMS()) or not IsDowned()) and not Ishandcuffed() and not IsPauseMenuActive() then
+        ExecuteCommand('petmenu')
     end
 end, false)
 
@@ -568,28 +572,6 @@ RegisterCommand('-showMenu', function()
 end, false)
 
 RegisterKeyMapping('+showMenu', 'show pet menu', 'keyboard', Config.Settings.petMenuKeybind)
-
---[[ OLD OX_LIB MENU TRIGGER
-RegisterCommand('+showMenu', function()
-    if ActivePed.read() then
-        TriggerEvent('keep-companion:client:main_menu')
-    end
-end, false)
-]]--
-RegisterCommand('+showMenu', function()
-    updatePlayerJob()
-    if ((IsDowned() and IsPoliceOrEMS()) or not IsDowned()) and not Ishandcuffed() and not IsPauseMenuActive() and
-        not isMenuOpen then
-        local doesPlayerHavePet = ActivePed:read()
-
-        if doesPlayerHavePet == nil then
-            QBCore.Functions.Notify(Lang:t('error.no_pet_under_control'), 'error', 5000)
-            return
-        end
-
-        TriggerEvent('keep-companion:client:main_menu')
-    end
-end, false)
 
 -- This will update all the PlayerData that doesn't get updated with a specific event other than this like the metadata
 RegisterNetEvent('QBCore:Player:SetPlayerData', function(val)

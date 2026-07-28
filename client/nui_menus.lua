@@ -38,6 +38,12 @@ RegisterNUICallback('closeMenu', function(data, cb)
     cb('ok')
 end)
 
+RegisterNUICallback('clickMenuItem', function(data, cb)
+    SetNuiFocus(false, false)
+    TriggerEvent('keep-companion:client:clickMenuItem', data.id)
+    cb('ok')
+end)
+
 RegisterNUICallback('closeInput', function(data, cb)
     SetNuiFocus(false, false)
     cb('ok')

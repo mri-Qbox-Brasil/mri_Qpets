@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { X, Check } from 'lucide-react';
+import { fetchNui } from '../utils/fetchNui';
 
 export function InputDialog() {
   const { isOpen, title, description, fields, closeInput, submitInput } = useInputStore();
@@ -38,6 +39,7 @@ export function InputDialog() {
   };
 
   const handleClose = () => {
+    fetchNui('closeInput');
     closeInput();
     setFormData({});
     setErrors({});
@@ -55,7 +57,7 @@ export function InputDialog() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={closeInput}
+              onClick={handleClose}
               className="hover:bg-destructive/20 hover:text-destructive"
             >
               <X className="w-5 h-5" />

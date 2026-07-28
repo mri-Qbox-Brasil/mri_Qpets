@@ -1,3 +1,7 @@
+alreadyHunting = {
+    state = false
+}
+
 function makeEntityFaceEntity(entity1, entity2)
     local p1 = GetEntityCoords(entity1, true)
     local p2 = GetEntityCoords(entity2, true)
@@ -10,12 +14,14 @@ function makeEntityFaceEntity(entity1, entity2)
 end
 
 function TaskFollowTargetedPlayer(follower, targetPlayer, distanceToStopAt, skip)
-    ClearPedTasks(follower)
-    if skip == false then
-        TaskGoToCoordAnyMeans(follower, GetEntityCoords(targetPlayer), 10.0, 0, 0, 0, 0)
-        Wait(5000)
-    end
-    TaskFollowToOffsetOfEntity(follower, targetPlayer, 2.5, 2.5, 2.5, 5.0, 10.0, distanceToStopAt, 1)
+    CreateThread(function()
+        ClearPedTasks(follower)
+        if skip == false then
+            TaskGoToCoordAnyMeans(follower, GetEntityCoords(targetPlayer), 10.0, 0, 0, 0, 0)
+            Wait(5000)
+        end
+        TaskFollowToOffsetOfEntity(follower, targetPlayer, 2.5, 2.5, 2.5, 5.0, 10.0, distanceToStopAt, 1)
+    end)
     return true
 end
 
@@ -143,9 +149,12 @@ function goThere(ped)
         local plyped = PlayerPedId()
         local position = GetEntityCoords(plyped)
         local coords, entity = RayCastGamePlayCamera(1000.0)
-        Draw2DText('~g~[E]~w~ MANDAR AO LOCAL', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
+        Draw2DText('~g~[E]~w~ MANDAR AO LOCAL | ~r~[BACKSPACE]~w~ CANCELAR', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
         if IsControlJustReleased(0, 38) then
             TaskGoToCoordAnyMeans(ped, coords, 10.0, 0, 0, 0, 0)
+            return
+        end
+        if IsControlJustReleased(0, 177) then
             return
         end
         DrawLine(position.x, position.y, position.z, coords.x, coords.y, coords.z, color.r, color.g, color.b, color.a)
@@ -250,7 +259,7 @@ function HuntandGrab(plyped, activePed)
         local color = { r = 2, g = 241, b = 181, a = 200 }
         local position = GetEntityCoords(plyped)
         local coords, entity = RayCastGamePlayCamera(1000.0)
-        Draw2DText('~g~[E]~w~ MANDAR AO LOCAL', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
+        Draw2DText('~g~[E]~w~ MANDAR AO LOCAL | ~r~[BACKSPACE]~w~ CANCELAR', 4, { 255, 255, 255 }, 0.4, 0.43, 0.888 + 0.025)
         if IsControlJustReleased(0, 38) then
             local pet = activePed.entity
             if IsPedAPlayer(entity) == 1 or IsEntityAPed(entity) == false or entity == pet then
@@ -297,6 +306,9 @@ function HuntandGrab(plyped, activePed)
             end
             return -- just incase
         end
+        if IsControlJustReleased(0, 177) then
+            return
+        end
         DrawLine(position.x, position.y, position.z, coords.x, coords.y, coords.z, color.r, color.g, color.b, color.a)
         DrawMarker(28, coords.x, coords.y, coords.z, 0.0, 0.0, 0.0, 0.0, 180.0, 0.0, 0.1, 0.1, 0.1, color.r, color.g,
             color.b, color.a, false, true, 2, nil, nil, false)
@@ -316,7 +328,7 @@ end
 
 function SearchLogic(plyped, activePed)
     if not PlayerJob then return end
-    if not (PlayerJob.name == 'police') then
+    if not Framework.IsPoliceJob(PlayerJob.name) then
         QBCore.Functions.Notify('You are not allowed to do this action', "error", 1500)
         return
     end
@@ -349,26 +361,11 @@ function SearchLogic(plyped, activePed)
 
     local player_server_id = GetPlayerServerId(closestPlayer)
     QBCore.Functions.TriggerCallback('keep-companion:server:search_inventory', function(result)
-        Wait(5000)
+        CreateThread(function()
+            Wait(5000)
 
-        Animator(activePed.entity, activePed.model, 'misc', {
-            animation = 'indicate_low',
-            sequentialTimings = {
-                -- How close the value is to the Timeout value determines how fast the script moves to the next animation.
-                [1] = 6, -- start animation Timeout ==> 1sec(6s-5s) to loop
-                [2] = 0, -- loop animation Timeout  ==> 6sec(6s-0s) to exit
-                [3] = 2, -- exit animation Timeout  ==> 4sec(6s-2s) to end
-                step = 1,
-                Timeout = 6
-            }
-        })
-        Wait(5000)
-        if result == true then
-            TriggerEvent('QBCore:Notify', 'K9 found something', 'success', 2500)
-            SetAnimalMood(activePed.entity, 1)
-            PlayAnimalVocalization(activePed.entity, 3, 'bark')
             Animator(activePed.entity, activePed.model, 'misc', {
-                animation = 'indicate_high',
+                animation = 'indicate_low',
                 sequentialTimings = {
                     -- How close the value is to the Timeout value determines how fast the script moves to the next animation.
                     [1] = 6, -- start animation Timeout ==> 1sec(6s-5s) to loop
@@ -378,8 +375,25 @@ function SearchLogic(plyped, activePed)
                     Timeout = 6
                 }
             })
-        end
-        finished = true
+            Wait(5000)
+            if result == true then
+                TriggerEvent('QBCore:Notify', 'K9 found something', 'success', 2500)
+                SetAnimalMood(activePed.entity, 1)
+                PlayAnimalVocalization(activePed.entity, 3, 'bark')
+                Animator(activePed.entity, activePed.model, 'misc', {
+                    animation = 'indicate_high',
+                    sequentialTimings = {
+                        -- How close the value is to the Timeout value determines how fast the script moves to the next animation.
+                        [1] = 6, -- start animation Timeout ==> 1sec(6s-5s) to loop
+                        [2] = 0, -- loop animation Timeout  ==> 6sec(6s-0s) to exit
+                        [3] = 2, -- exit animation Timeout  ==> 4sec(6s-2s) to end
+                        step = 1,
+                        Timeout = 6
+                    }
+                })
+            end
+            finished = true
+        end)
     end, player_server_id)
 end
 

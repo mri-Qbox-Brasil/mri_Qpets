@@ -56,9 +56,11 @@ export const useInputStore = create<InputDialogState>((set, get) => ({
     if (callbackEvent) {
       fetchNui(callbackEvent, data).then(() => {
         get().closeInput();
+        fetchNui('closeInput');
       });
     } else {
       get().closeInput();
+      fetchNui('closeInput');
     }
   }
 }));

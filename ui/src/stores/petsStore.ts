@@ -17,6 +17,8 @@ interface PetsState {
   addXP: (petId: number, amount: number) => void;
   healPet: (petId: number, amount: number) => void;
   petAction: (petId: number, action: string) => void;
+  spawnPet: (petId: number) => Promise<void>;
+  despawnPet: (petId: number) => Promise<void>;
   removePet: (petId: number) => void;
   loadPets: () => Promise<void>;
 }
@@ -28,7 +30,13 @@ export const usePetsStore = create<PetsState>((set, get) => ({
 
   setPets: (pets) => {
     const activePet = pets.find(p => p.isActive) || null;
-    set({ pets, activePet });
+    set({ 
+      pets, 
+      activePet,
+      selectedPet: get().selectedPet 
+        ? pets.find(p => p.id === get().selectedPet?.id) || null 
+        : null
+    });
   },
 
   selectPet: (petId) => {
@@ -54,19 +62,17 @@ export const usePetsStore = create<PetsState>((set, get) => ({
     const pets = get().pets;
     
     // Remove active status from all pets
-    const updatedPets = pets.map(p => ({ ...p, isActive: false }));
+    const updatedPets = pets.map(p => ({ ...p, isActive: p.id === petId }));
     
-    // Set new active pet
-    if (petId) {
-      const petIndex = updatedPets.findIndex(p => p.id === petId);
-      if (petIndex !== -1) {
-        updatedPets[petIndex].isActive = true;
-      }
-    }
+    const currentSelected = get().selectedPet;
+    const newSelected = currentSelected
+      ? { ...currentSelected, isActive: currentSelected.id === petId }
+      : null;
 
     set({
       pets: updatedPets,
-      activePet: petId ? updatedPets.find(p => p.id === petId) || null : null
+      activePet: petId ? updatedPets.find(p => p.id === petId) || null : null,
+      selectedPet: newSelected
     });
   },
 
@@ -135,11 +141,41 @@ export const usePetsStore = create<PetsState>((set, get) => ({
         action
       });
 
-      if (result.success && result.pet) {
-        get().updatePet(petId, result.pet);
+      if (result.success) {
+        get().loadPets();
       }
     } catch (error) {
       console.error('Failed to perform pet action:', error);
+    }
+  },
+
+  spawnPet: async (petId) => {
+    if (isEnvBrowser()) {
+      get().setActivePet(petId);
+      return;
+    }
+    try {
+      const result = await fetchNui<{ success: boolean }>('spawnPet', { petId });
+      if (result.success) {
+        get().setActivePet(petId);
+      }
+    } catch (error) {
+      console.error('Failed to spawn pet:', error);
+    }
+  },
+
+  despawnPet: async (petId) => {
+    if (isEnvBrowser()) {
+      get().setActivePet(null);
+      return;
+    }
+    try {
+      const result = await fetchNui<{ success: boolean }>('despawnPet', { petId });
+      if (result.success) {
+        get().setActivePet(null);
+      }
+    } catch (error) {
+      console.error('Failed to despawn pet:', error);
     }
   },
 
